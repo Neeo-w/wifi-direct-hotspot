@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="Theme.Wifip2photspot" parent="android:Theme.Material.Light.NoActionBar" />
+<!--    <style name="Theme.WiFiP2PHotspot" parent="Theme.Material3.DayNight.NoActionBar">-->
+
+</resources>
+<!--    &lt;!&ndash; res/values/themes.xml &ndash;&gt;-->
+<!--<resources xmlns:tools="http://schemas.android.com/tools">-->
+<!--<style name="Theme.WiFiP2PHotspot" parent="Theme.Material3.DayNight.NoActionBar">-->
+<!--    &lt;!&ndash; Customize your theme here. &ndash;&gt;-->
+<!--    <item name="android:windowBackground">@color/white</item>-->
+<!--</style>-->
+<!--</resources>-->
