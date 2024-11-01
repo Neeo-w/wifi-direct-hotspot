@@ -31,7 +31,55 @@ import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 
 import android.net.wifi.p2p.WifiP2pDevice
+import android.util.Log
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Smartphone
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.wear.compose.material.ContentAlpha
+import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.VisualTransformation
+import kotlinx.coroutines.launch
 
 
 class MainActivity : ComponentActivity() {
@@ -46,6 +94,9 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var receiver: BroadcastReceiver
     private lateinit var intentFilter: IntentFilter
+    private var isProcessing by mutableStateOf(false)
+
+
 
     // Use MutableStateList to track connected devices
     private val connectedDevices = mutableStateListOf<WifiP2pDevice>()
@@ -69,10 +120,12 @@ class MainActivity : ComponentActivity() {
         receiver = WifiDirectBroadcastReceiver(manager, channel, this)
 
         // Request necessary permissions
-        ActivityCompat.requestPermissions(this, arrayOf(
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.NEARBY_WIFI_DEVICES
-        ), 0)
+        ActivityCompat.requestPermissions(
+            this, arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.NEARBY_WIFI_DEVICES
+            ), 0
+        )
 
         setContent {
             WiFiP2PHotspotApp()
@@ -93,7 +146,6 @@ class MainActivity : ComponentActivity() {
         isWifiP2pEnabled = enabled
     }
 
-    @SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
     @OptIn(ExperimentalMaterial3Api::class)
     @RequiresApi(Build.VERSION_CODES.Q)
     @Composable
@@ -102,131 +154,213 @@ class MainActivity : ComponentActivity() {
         var passwordInput by remember { mutableStateOf("") }
         var logMessages by remember { mutableStateOf("") }
         var selectedBand by remember { mutableStateOf("Auto") }
+        var ssidError by remember { mutableStateOf(false) }
+        var passwordError by remember { mutableStateOf(false) }
+        var passwordVisible by remember { mutableStateOf(false) }
+        val snackbarHostState = remember { SnackbarHostState() }
+        val coroutineScope = rememberCoroutineScope()
+        var isProcessing by remember { mutableStateOf(false) }
+
+        val mainActivity = LocalContext.current as MainActivity
+        val devices = mainActivity.connectedDevices
+
+        val previousDeviceCount = remember { mutableIntStateOf(devices.size) }
+
 
         val bands = listOf("Auto", "2.4GHz", "5GHz")
-
         // Convert connectedDevices to a stable list for recomposition
-        val devices by remember { derivedStateOf { connectedDevices.toList() } }
+//        val devices by remember { derivedStateOf { connectedDevices.toList() } }
 
         Scaffold(
-            topBar = {
-                TopAppBar(title = { Text("Wi-Fi P2P Hotspot") })
-            },
-            content = {
-                Column(modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp)) {
+            snackbarHost = { SnackbarHost(snackbarHostState) },
 
-                    // Input fields are only enabled when the hotspot is not enabled
-                    OutlinedTextField(
-                        value = ssidInput,
-                        onValueChange = { ssidInput = it },
-                        label = { Text("SSID") },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !isHotspotEnabled
-                    )
-
-                    OutlinedTextField(
-                        value = passwordInput,
-                        onValueChange = { passwordInput = it },
-                        label = { Text("Password") },
-                        modifier = Modifier.fillMaxWidth(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        enabled = !isHotspotEnabled
-                    )
-
-                    Text("Select Band:")
-                    bands.forEach { band ->
-                        Row(
-                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = selectedBand == band,
-                                onClick = { selectedBand = band },
-                                enabled = !isHotspotEnabled
-                            )
-                            Text(text = band)
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Toggle Switch
-                    Row(
-                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
+            topBar = { ImprovedHeader() },
+            content = { paddingValues ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues)
+                        .padding(horizontal = 16.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    // Input Fields and Hotspot Control Section
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
                     ) {
-                        Text("Start Wi-Fi Hotspot")
-                        Spacer(modifier = Modifier.weight(1f))
-                        Switch(
-                            checked = isHotspotEnabled,
-                            onCheckedChange = { isChecked ->
-                                if (isChecked && !isHotspotEnabled) {
-                                    // Start the hotspot
-                                    onButtonStartTapped(
-                                        ssidInput,
-                                        passwordInput,
-                                        selectedBand,
-                                        { message -> updateLog(message) }
-                                    )
-                                } else if (!isChecked && isHotspotEnabled) {
-                                    // Stop the hotspot
-                                    onButtonStopTapped { message -> updateLog(message) }
-                                }
+                        ssidError = ssidInput.isEmpty()
+                        passwordError = passwordInput.length !in 8..63
+                        // Card with input fields
+                        Card(
+                            elevation = CardDefaults.cardElevation(4.dp),
+                            shape = MaterialTheme.shapes.medium,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                // SSID Input Field
+                                OutlinedTextField(
+                                    value = ssidInput,
+                                    onValueChange = { ssidInput = it },
+                                    label = { Text("SSID") },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.Wifi,
+                                            contentDescription = null
+                                        )
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .alpha(if (!isHotspotEnabled) 1f else ContentAlpha.disabled),
+                                    enabled = !isHotspotEnabled,
+                                    singleLine = true,
+                                    isError = ssidError,
+                                    supportingText = {
+                                        if (ssidError) {
+                                            Text(
+                                                text = "SSID cannot be empty",
+                                                color = MaterialTheme.colorScheme.error
+                                            )
+                                        }
+                                    }
+                                )
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                // Password Input Field with Show/Hide Feature
+                                OutlinedTextField(
+                                    value = passwordInput,
+                                    onValueChange = { passwordInput = it },
+                                    label = { Text("Password") },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Filled.Lock,
+                                            contentDescription = null
+                                        )
+                                    },
+                                    trailingIcon = {
+                                        val image = if (passwordVisible)
+                                            Icons.Filled.Visibility
+                                        else
+                                            Icons.Filled.VisibilityOff
+
+                                        val description =
+                                            if (passwordVisible) "Hide password" else "Show password"
+
+                                        IconButton(onClick = {
+                                            passwordVisible = !passwordVisible
+                                        }) {
+                                            Icon(
+                                                imageVector = image,
+                                                contentDescription = description
+                                            )
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .alpha(if (!isHotspotEnabled) 1f else ContentAlpha.disabled),
+                                    keyboardOptions = KeyboardOptions(
+                                        keyboardType = KeyboardType.Password,
+                                        imeAction = ImeAction.Done
+                                    ),
+                                    keyboardActions = KeyboardActions(
+                                        onDone = { /* Handle action if needed */ }
+                                    ),
+                                    enabled = !isHotspotEnabled,
+                                    singleLine = true,
+                                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                    isError = passwordError,
+                                    supportingText = {
+                                        if (passwordError) {
+                                            Text(
+                                                text = "Password must be 8-63 characters",
+                                                color = MaterialTheme.colorScheme.error
+                                            )
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                        // Band Selection using BandSelection Composable
+                        BandSelection(
+                            selectedBand = selectedBand,
+                            onBandSelected = { selectedBand = it },
+                            bands = bands,
+                            isHotspotEnabled = isHotspotEnabled
+                        )
+                        // Inside your WiFiP2PHotspotApp Composable
+                        HotspotControlSection(
+                            isHotspotEnabled = isHotspotEnabled,
+                            isProcessing = isProcessing,
+                            ssidInput = ssidInput,
+                            passwordInput = passwordInput,
+                            selectedBand = selectedBand,
+                            onStartTapped = {
+                                onButtonStartTapped(
+                                    ssidInput,
+                                    passwordInput,
+                                    selectedBand
+                                ) { message -> updateLog(message) }
+                            },
+                            onStopTapped = {
+                                onButtonStopTapped { message -> updateLog(message) }
                             }
                         )
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Connected Devices Section
+                        ConnectedDevicesSection(
+                            devices = devices,
+                            onDeviceClick = { device ->
+                                // Handle device click
+                            }
+                        )
+
+                        updateLogCallback = { message ->
+                            logMessages += message
+                        }
+                        //logs
+                        Spacer(modifier = Modifier.height(16.dp))
+                        LogSection(logMessages = logMessages)
                     }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Text("Connected Devices:")
-                    devices.forEach { device ->
-                        Text("Device Name: ${device.deviceName}, Address: ${device.deviceAddress}")
+                    // Observe changes in connectedDevices
+                    LaunchedEffect(connectedDevices.size) {
+                        if (connectedDevices.size > previousDeviceCount.value) {
+                            // A device has connected
+                            coroutineScope.launch {
+                                snackbarHostState.showSnackbar("A device has connected.")
+                            }
+                        } else if (connectedDevices.size < previousDeviceCount.value) {
+                            // A device has disconnected
+                            coroutineScope.launch {
+                                snackbarHostState.showSnackbar("A device has disconnected.")
+                            }
+                        }
+                        previousDeviceCount.value = connectedDevices.size
                     }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Text("Log:")
-                    Text(logMessages)
                 }
+
             }
         )
-
-        // Set the callback to update the log
-        DisposableEffect(Unit) {
-            updateLogCallback = { message ->
-                logMessages += message
-            }
-            onDispose {
-                updateLogCallback = null
-            }
-        }
-    }
-
-    private fun updateLog(message: String) {
-        updateLogCallback?.invoke(message)
     }
 
     fun onDevicesChanged(deviceList: Collection<WifiP2pDevice>) {
-        // Update the list of connected devices
         connectedDevices.clear()
         connectedDevices.addAll(deviceList)
-
-        // Update the log
-        val deviceInfo = if (deviceList.isNotEmpty()) {
-            deviceList.joinToString(separator = "\n") { device ->
-                "Device Name: ${device.deviceName}, Address: ${device.deviceAddress}"
-            }
-        } else {
-            "No devices connected."
+        // Log for debugging
+        val deviceInfo = deviceList.joinToString(separator = "\n") { device ->
+            "Device Name: ${device.deviceName}, Address: ${device.deviceAddress}"
         }
+        Log.d("ConnectedDevices", "Connected Devices:\n$deviceInfo")
+    }
 
-        val logMessage = "Connected Devices:\n$deviceInfo\n"
 
-        // Update the log on the main thread
-        runOnUiThread {
-            updateLog(logMessage)
-        }
+    private fun updateLog(message: String) {
+        updateLogCallback?.invoke(message)
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
@@ -243,6 +377,8 @@ class MainActivity : ComponentActivity() {
             isHotspotEnabled = false
             return
         }
+        isProcessing = true // Start processing
+
 
         val ssidTrimmed = ssidInput.trim()
         val passwordTrimmed = passwordInput.trim()
@@ -257,7 +393,11 @@ class MainActivity : ComponentActivity() {
 
         if (passwordTrimmed.length !in 8..63) {
             outputLog("Error: The length of a passphrase must be between 8 and 63.\n")
-            Toast.makeText(this, "Password must be between 8 and 63 characters.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                this,
+                "Password must be between 8 and 63 characters.",
+                Toast.LENGTH_SHORT
+            ).show()
             // Reset the switch to off
             isHotspotEnabled = false
             return
@@ -283,7 +423,11 @@ class MainActivity : ComponentActivity() {
             manager.createGroup(channel, config, object : WifiP2pManager.ActionListener {
                 override fun onSuccess() {
                     outputLog("Hotspot started successfully.\n")
-                    Toast.makeText(this@MainActivity, "Hotspot started successfully.", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Hotspot started successfully.",
+                        Toast.LENGTH_SHORT
+                    ).show()
                     isHotspotEnabled = true
                     outputLog("------------------- Hotspot Info -------------------\n")
                     outputLog("SSID: $ssid\n")
@@ -305,8 +449,13 @@ class MainActivity : ComponentActivity() {
                         else -> "Unknown error"
                     }
                     outputLog("Failed to start hotspot. Reason: $reasonStr\n")
-                    Toast.makeText(this@MainActivity, "Failed to start hotspot: $reasonStr", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Failed to start hotspot: $reasonStr",
+                        Toast.LENGTH_SHORT
+                    ).show()
                     // Reset the switch to off
+                    isProcessing = false
                     isHotspotEnabled = false
                 }
             })
@@ -314,9 +463,11 @@ class MainActivity : ComponentActivity() {
             outputLog("Exception: ${e.message}\n")
             Toast.makeText(this, "Exception occurred: ${e.message}", Toast.LENGTH_SHORT).show()
             // Reset the switch to off
+            isProcessing = false
             isHotspotEnabled = false
         }
     }
+
 
     fun onButtonStopTapped(outputLog: (String) -> Unit) {
         if (!isHotspotEnabled) {
@@ -324,12 +475,18 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "Hotspot is not enabled.", Toast.LENGTH_SHORT).show()
             return
         }
+        isProcessing = true // Start processing
+
 
         try {
             manager.removeGroup(channel, object : WifiP2pManager.ActionListener {
                 override fun onSuccess() {
                     outputLog("Hotspot stopped successfully.\n")
-                    Toast.makeText(this@MainActivity, "Hotspot stopped successfully.", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Hotspot stopped successfully.",
+                        Toast.LENGTH_SHORT
+                    ).show()
                     isHotspotEnabled = false
                     // Clear the connected devices list
                     connectedDevices.clear()
@@ -343,8 +500,13 @@ class MainActivity : ComponentActivity() {
                         else -> "Unknown error"
                     }
                     outputLog("Failed to stop hotspot. Reason: $reasonStr\n")
-                    Toast.makeText(this@MainActivity, "Failed to stop hotspot: $reasonStr", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Failed to stop hotspot: $reasonStr",
+                        Toast.LENGTH_SHORT
+                    ).show()
                     // Set the switch back to on since we failed to stop the hotspot
+                    isProcessing = false
                     isHotspotEnabled = true
                 }
             })
@@ -352,7 +514,315 @@ class MainActivity : ComponentActivity() {
             outputLog("Exception: ${e.message}\n")
             Toast.makeText(this, "Exception occurred: ${e.message}", Toast.LENGTH_SHORT).show()
             // Set the switch back to on since we failed to stop the hotspot
+            isProcessing = false
             isHotspotEnabled = true
+            e.printStackTrace()
         }
     }
 }
+
+@Composable
+fun ConnectedDevicesSection(
+    devices: List<WifiP2pDevice>,
+    onDeviceClick: (WifiP2pDevice) -> Unit = {}
+) {
+    Text(
+        text = "Connected Devices (${devices.size}):",
+        style = MaterialTheme.typography.titleMedium,
+        modifier = Modifier.padding(vertical = 8.dp)
+    )
+
+    if (devices.isEmpty()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(32.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "No devices connected.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    } else {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 300.dp)
+        ) {
+            items(devices) { device ->
+                DeviceItem(device = device, onClick = onDeviceClick)
+            }
+        }
+    }
+}
+
+
+
+@Composable
+fun DeviceItem(
+    device: WifiP2pDevice,
+    onClick: (WifiP2pDevice) -> Unit = {}
+) {
+    Card(
+        elevation = CardDefaults.cardElevation(2.dp),
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .clickable { onClick(device) }
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(12.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Smartphone,
+                contentDescription = "Device Icon",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(40.dp)
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = device.deviceName.ifBlank { "Unknown Device" },
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "Address: ${device.deviceAddress}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+
+//
+//fun getDeviceStatus(status: Int): String {
+//    return when (status) {
+//        WifiP2pDevice.AVAILABLE -> "Available"
+//        WifiP2pDevice.INVITED -> "Invited"
+//        WifiP2pDevice.CONNECTED -> "Connected"
+//        WifiP2pDevice.FAILED -> "Failed"
+//        WifiP2pDevice.UNAVAILABLE -> "Unavailable"
+//        else -> "Unknown"
+//    }
+//}
+
+
+@Composable
+fun LogSection(logMessages: String) {
+    var isExpanded by remember { mutableStateOf(false) }
+
+    Spacer(modifier = Modifier.height(16.dp))
+
+    TextButton(onClick = { isExpanded = !isExpanded }) {
+        Text(if (isExpanded) "Hide Logs" else "Show Logs")
+    }
+
+    if (isExpanded) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 200.dp)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .padding(8.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
+            Text(
+                text = logMessages,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+
+@Composable
+fun HotspotControlSection(
+    isHotspotEnabled: Boolean,
+    isProcessing: Boolean,
+    ssidInput: String,
+    passwordInput: String,
+    selectedBand: String,
+    onStartTapped: () -> Unit,
+    onStopTapped: () -> Unit
+) {
+    Spacer(modifier = Modifier.height(16.dp))
+
+    // Hotspot Control Section
+    Card(
+        elevation = CardDefaults.cardElevation(4.dp),
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Status Text with Icon
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                val statusIcon = when {
+                    isProcessing -> Icons.Default.Sync
+                    isHotspotEnabled -> Icons.Default.Wifi
+                    else -> Icons.Default.WifiOff
+                }
+                val statusText = when {
+                    isProcessing -> if (isHotspotEnabled) "Stopping hotspot..." else "Starting hotspot..."
+                    isHotspotEnabled -> "Hotspot is active"
+                    else -> "Hotspot is inactive"
+                }
+                Icon(
+                    imageVector = statusIcon,
+                    contentDescription = statusText,
+                    tint = if (isHotspotEnabled) Color(0xFF4CAF50) else Color(0xFFF44336) // Green or Red
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = statusText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Start/Stop Button
+            Button(
+                onClick = {
+                    if (isHotspotEnabled) {
+                        onStopTapped()
+                    } else {
+                        onStartTapped()
+                    }
+                },
+                enabled = !isProcessing,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (isProcessing) {
+                    CircularProgressIndicator(
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(24.dp)
+                    )
+                } else {
+                    Text(if (isHotspotEnabled) "Stop Hotspot" else "Start Hotspot")
+                }
+            }
+        }
+    }
+}
+
+
+@Composable
+fun BandSelection(
+    selectedBand: String,
+    onBandSelected: (String) -> Unit,
+    bands: List<String>,
+    isHotspotEnabled: Boolean
+) {
+    Text(
+        text = "Select Band:",
+        style = MaterialTheme.typography.bodyMedium,
+        modifier = Modifier.padding(top = 16.dp)
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp)
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.primary,
+                shape = RoundedCornerShape(8.dp)
+            ),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        bands.forEachIndexed { index, band ->
+            val isSelected = selectedBand == band
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(
+                        enabled = !isHotspotEnabled,
+                        onClick = { onBandSelected(band) }
+                    )
+                    .background(
+                        color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                        shape = if (index == 0) {
+                            RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp)
+                        } else if (index == bands.lastIndex) {
+                            RoundedCornerShape(topEnd = 8.dp, bottomEnd = 8.dp)
+                        } else {
+                            RoundedCornerShape(0.dp)
+                        }
+                    )
+                    .padding(vertical = 12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = band,
+                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ImprovedHeader() {
+    var showMenu by remember { mutableStateOf(false) }
+
+    TopAppBar(
+        title = { Text("Asol") },
+        navigationIcon = {
+            IconButton(onClick = { /* Open navigation drawer */ }) {
+                Icon(Icons.Filled.Menu, contentDescription = "Menu")
+            }
+        },
+        actions = {
+            IconButton(onClick = { /* Open settings */ }) {
+                Icon(Icons.Filled.Settings, contentDescription = "Settings")
+            }
+            IconButton(onClick = { showMenu = !showMenu }) {
+                Icon(Icons.Filled.MoreVert, contentDescription = "More options")
+            }
+            DropdownMenu(
+                expanded = showMenu,
+                onDismissRequest = { showMenu = false }
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Help") },
+                    onClick = { /* Navigate to help */ }
+                )
+                DropdownMenuItem(
+                    text = { Text("About") },
+                    onClick = { /* Navigate to about */ }
+                )
+            }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = MaterialTheme.colorScheme.primary,
+            titleContentColor = MaterialTheme.colorScheme.onPrimary,
+            actionIconContentColor = MaterialTheme.colorScheme.onPrimary
+        ),
+//        elevation = 4.dp
+    )
+}
+
+
