@@ -12,6 +12,7 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 import java.io.IOException
@@ -41,6 +42,11 @@ class HotspotViewModel(private val dataStore: DataStore<Preferences>) : ViewMode
     private val _totalDownload = MutableStateFlow(0) // in KB
     val totalDownload: StateFlow<Int> = _totalDownload
 
+    private val _isHotspotEnabled = MutableStateFlow(false)
+    val isHotspotEnabled: StateFlow<Boolean> = _isHotspotEnabled.asStateFlow()
+
+    private val _isProcessing = MutableStateFlow(false)
+    val isProcessing: StateFlow<Boolean> = _isProcessing.asStateFlow()
 
     init {
         // Load SSID and Password from DataStore
@@ -82,6 +88,8 @@ class HotspotViewModel(private val dataStore: DataStore<Preferences>) : ViewMode
             }
         }
     }
+
+
 
     fun updateSSID(newSSID: String) {
         viewModelScope.launch {

@@ -11,6 +11,7 @@ class WifiDirectBroadcastReceiver(
     private val manager: WifiP2pManager,
     private val channel: WifiP2pManager.Channel,
     private val activity: MainActivity
+
 ) : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
