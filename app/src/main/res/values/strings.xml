@@ -1,3 +1,19 @@
+<!-- res/values/strings.xml -->
 <resources>
-    <string name="app_name">wifip2photspot</string>
+    <string name="app_name">WiFi P2P Hotspot</string>
+    <string name="speed">Speed</string>
+    <string name="download">Download</string>
+    <string name="devices">Devices</string>
+    <string name="kbps">kbps</string>
+    <string name="error_fetching_data">Error fetching data. Please try again.</string>
+    <string name="device_connected">A device has connected.</string>
+    <string name="device_disconnected">A device has disconnected.</string>
+    <string name="device_connected_log">Device connected. Total devices: %1$d</string>
+    <string name="device_disconnected_log">Device disconnected. Total devices: %1$d</string>
+    <string name="hotspot_active_description">Hotspot is active</string>
+    <string name="hotspot_inactive_description">Hotspot is inactive</string>
+    <string name="upload_speed_description">Upload Speed</string>
+    <string name="download_speed_description">Download Speed</string>
+    <string name="connected_devices_description">Number of connected devices</string>
+    <!-- Add other necessary strings here -->
 </resources>
