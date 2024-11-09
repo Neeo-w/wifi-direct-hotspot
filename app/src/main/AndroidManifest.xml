@@ -20,14 +20,25 @@
     <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" />
     <!-- Wi-Fi P2P permissions -->
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- Required Permissions -->
+    <uses-permission android:name="android.permission.BIND_VPN_SERVICE"
+        tools:ignore="ProtectedPermissions" />
 
     <!-- Minimum SDK version -->
     <uses-sdk android:minSdkVersion="29" />
 
     <application
-        android:label="WiFiP2PHotspot"
+        android:allowBackup="true"
+        android:label="@string/app_name"
         android:theme="@style/Theme.Wifip2photspot">
-        <activity android:name=".MainActivity"
+
+
+        <!-- Main Activity Declaration -->
+        <activity
+            android:name=".MainActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -35,6 +46,15 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-    </application>
 
+<!--        <service-->
+<!--            android:name=".Proxy.ProxyService"-->
+<!--            android:permission="android.permission.BIND_VPN_SERVICE"-->
+<!--            android:exported="false">-->
+<!--            <intent-filter>-->
+<!--                <action android:name="android.net.VpnService" />-->
+<!--            </intent-filter>-->
+<!--        </service>-->
+
+    </application>
 </manifest>

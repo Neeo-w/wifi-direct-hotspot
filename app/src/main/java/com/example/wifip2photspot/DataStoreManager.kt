@@ -17,8 +17,8 @@ object DataStoreManager {
     )
 
     // Define keys
-    val SSID_KEY = stringPreferencesKey("ssid_key")
-    val PASSWORD_KEY = stringPreferencesKey("password_key")
+    private val SSID_KEY = stringPreferencesKey("ssid_key")
+    private val PASSWORD_KEY = stringPreferencesKey("password_key")
 
     // Function to get SSID
     fun getSsid(context: Context): Flow<String> {

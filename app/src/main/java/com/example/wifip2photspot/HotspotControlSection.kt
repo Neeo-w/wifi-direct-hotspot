@@ -1,102 +1,94 @@
+// HotspotControlSection.kt
 package com.example.wifip2photspot
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import android.content.Intent
+import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
-
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import com.example.wifip2photspot.Proxy.ProxyService
 
 @Composable
 fun HotspotControlSection(
     isHotspotEnabled: Boolean,
     isProcessing: Boolean,
     ssidInput: String,
+    proxyPort: Int,
     passwordInput: String,
     selectedBand: String,
     onStartTapped: () -> Unit,
     onStopTapped: () -> Unit
 ) {
-    Spacer(modifier = Modifier.height(16.dp))
+    val context = LocalContext.current
 
-    Card(
-        elevation = CardDefaults.cardElevation(4.dp),
-        shape = MaterialTheme.shapes.medium,
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 8.dp)
+            .padding(vertical = 16.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                // Status Text with Icon
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    val statusIcon = when {
-                        isProcessing -> Icons.Default.Sync
-                        isHotspotEnabled -> Icons.Default.Wifi
-                        else -> Icons.Default.WifiOff
-                    }
-                    val statusText = when {
-                        isProcessing -> if (isHotspotEnabled) "Stopping hotspot..." else "Starting hotspot..."
-                        isHotspotEnabled -> "Hotspot is active"
-                        else -> "Hotspot is inactive"
-                    }
-                    Icon(
-                        imageVector = statusIcon,
-                        contentDescription = statusText,
-                        tint = if (isHotspotEnabled) Color(0xFF4CAF50) else Color(0xFFF44336) // Green or Red
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = statusText,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
+        Button(
+            onClick = {
+                onStartTapped()
+                // Start ProxyService
+                val intent = Intent(context, ProxyService::class.java)
+                context.startService(intent)
+            },
+            enabled = !isHotspotEnabled && !isProcessing
+        ) {
+            if (isProcessing) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            } else {
+                Text("Start Hotspot & Proxy")
+            }
+        }
 
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Start/Stop Button
-                Button(
-                    onClick = {
-                        if (isHotspotEnabled) {
-                            onStopTapped()
-                        } else {
-                            onStartTapped()
-                        }
-                    }, enabled = !isProcessing, modifier = Modifier.fillMaxWidth()
-                ) {
-                    if (isProcessing) {
-                        CircularProgressIndicator(
-                            color = MaterialTheme.colorScheme.onPrimary,
-                            strokeWidth = 2.dp,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    } else {
-                        Text(if (isHotspotEnabled) "Stop Hotspot" else "Start Hotspot")
-                    }
-                }
+        val statusIcon = when {
+            isProcessing -> Icons.Default.Sync
+            isHotspotEnabled -> Icons.Default.Wifi
+            else -> Icons.Default.WifiOff
+        }
+        val statusText = when {
+            isProcessing -> if (isHotspotEnabled) "Stopping hotspot..." else "Starting hotspot..."
+            isHotspotEnabled -> "Hotspot & Proxy are active"
+            else -> "Hotspot & Proxy are inactive"
+        }
+        Icon(
+            imageVector = statusIcon,
+            contentDescription = statusText,
+            tint = if (isHotspotEnabled) Color(0xFF4CAF50) else Color(0xFFF44336) // Green or Red
+        )
+        Button(
+            onClick = {
+                onStopTapped()
+                // Stop ProxyService
+                val intent = Intent(context, ProxyService::class.java)
+                context.stopService(intent)
+            },
+            enabled = isHotspotEnabled && !isProcessing
+        ) {
+            if (isProcessing) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            } else {
+                Text("Stop Hotspot & Proxy")
             }
         }
     }
 }
+

@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
+
 }
 
 android {
@@ -69,9 +70,24 @@ dependencies {
     debugImplementation(libs.androidx.ui.test.manifest)
     implementation ("androidx.compose.material:material-icons-extended:1.5.0")
 
+    implementation ("androidx.work:work-runtime-ktx:2.7.1")
+
+
     // DataStore
     implementation ("androidx.datastore:datastore-preferences:1.0.0")
     implementation ("androidx.datastore:datastore-core:1.0.0")
+
+    implementation("com.github.PhilJay:MPAndroidChart:v3.1.0")
+
+//    implementation(libs.charts)
+
+
+
+    implementation (libs.kotlinx.serialization.json)
+//    implementation ("com.github.bumptech.glide:glide:4.15.1")
+
+    implementation(libs.timber)
+//    implementation (libs.mpandroidchart)
 
 
 

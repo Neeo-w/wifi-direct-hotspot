@@ -1,7 +1,10 @@
 // ConnectionStatusBar.kt
 package com.example.wifip2photspot
 
+import android.provider.CalendarContract.Colors
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
@@ -10,13 +13,25 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import com.github.mikephil.charting.charts.LineChart
+import com.github.mikephil.charting.components.XAxis
+import com.github.mikephil.charting.data.Entry
+import com.github.mikephil.charting.data.LineData
+import com.github.mikephil.charting.data.LineDataSet
 
 @Composable
 fun ConnectionStatusBar(
@@ -190,6 +205,46 @@ fun AnimatedText(
         )
     }
 }
+@Composable
+fun AnimatedButton(
+    text: String,
+    onClick: () -> Unit,
+    enabled: Boolean,
+    modifier: Modifier = Modifier
+) {
+    // Animation for scaling the button when pressed
+    var isPressed by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.95f else 1f,
+        animationSpec = tween(durationMillis = 100)
+    )
+
+    // Animation for color change
+    val buttonColor by animateColorAsState(
+        targetValue = if (enabled) MaterialTheme.colorScheme.primary else Color.Gray,
+        animationSpec = tween(durationMillis = 300)
+    )
+
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier
+            .scale(scale)
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onPress = {
+                        isPressed = true
+                        tryAwaitRelease()
+                        isPressed = false
+                    }
+                )
+            },
+        colors = ButtonDefaults.buttonColors(containerColor = buttonColor)
+    ) {
+        Text(text)
+    }
+}
+
 
 @Composable
 fun MetricSubCard(
@@ -224,3 +279,66 @@ fun MetricSubCard(
     }
 }
 
+@Composable
+fun DataUsageSection(
+    rxBytes: Long,
+    txBytes: Long
+) {
+    Column(modifier = Modifier.padding(16.dp)) {
+        Text("Session Data Usage", style = MaterialTheme.typography.titleMedium)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text("Download: ${formatBytes(rxBytes)}")
+        Text("Upload: ${formatBytes(txBytes)}")
+    }
+}
+
+fun formatBytes(bytes: Long): String {
+    val kb = bytes / 1024
+    val mb = kb / 1024
+    return when {
+        mb > 0 -> "$mb MB"
+        kb > 0 -> "$kb KB"
+        else -> "$bytes Bytes"
+    }
+}
+
+@Composable
+fun HistoricalDataUsageSection(historicalData: List<DataUsageRecord>) {
+    Column(modifier = Modifier.padding(16.dp)) {
+        Text("Historical Data Usage", style = MaterialTheme.typography.titleMedium)
+        Spacer(modifier = Modifier.height(8.dp))
+        historicalData.forEach { record ->
+            Text("${record.date}: Download ${formatBytes(record.rxBytes)}, Upload ${formatBytes(record.txBytes)}")
+        }
+    }
+}
+
+@Composable
+fun SpeedGraphSection(
+    uploadSpeeds: List<Entry>,
+    downloadSpeeds: List<Entry>
+) {
+    AndroidView(
+        factory = { context ->
+            LineChart(context).apply {
+                description.isEnabled = false
+                xAxis.position = XAxis.XAxisPosition.BOTTOM
+                axisRight.isEnabled = false
+            }
+        },
+        update = { chart ->
+            val uploadDataSet = LineDataSet(uploadSpeeds, "Upload Speed").apply {
+                color = Color.Red.toArgb()
+            }
+            val downloadDataSet = LineDataSet(downloadSpeeds, "Download Speed").apply {
+                color = Color.Green.toArgb()
+            }
+            val data = LineData(uploadDataSet, downloadDataSet)
+            chart.data = data
+            chart.invalidate()
+        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(200.dp)
+    )
+}

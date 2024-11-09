@@ -19,3 +19,4 @@ class HotspotViewModelFactory(
         throw IllegalArgumentException("Unknown ViewModel class")
     }
 }
+
