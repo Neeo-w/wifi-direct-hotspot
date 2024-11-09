@@ -3,6 +3,8 @@ package com.example.wifip2photspot
 
 import android.Manifest
 import android.app.AlertDialog
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -29,6 +31,7 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.contentcapture.ContentCaptureManager.Companion.isEnabled
 import com.example.wifip2photspot.Proxy.ProxyService
+import com.example.wifip2photspot.Proxy.ProxyService.Companion.CHANNEL_ID
 import com.example.wifip2photspot.ui.theme.WiFiP2PHotspotTheme
 
 private val Context.dataStore by preferencesDataStore(name = "settings")
@@ -38,6 +41,10 @@ class MainActivity : ComponentActivity() {
     private lateinit var viewModel: HotspotViewModel
     private lateinit var receiver: WifiDirectBroadcastReceiver
     private lateinit var intentFilter: IntentFilter
+
+    private val channelName = "Data Usage Alerts"
+    private val channelDescription = "Notifications for data usage thresholds"
+    private val importance = NotificationManager.IMPORTANCE_HIGH
 
     @OptIn(ExperimentalComposeUiApi::class)
     @RequiresApi(Build.VERSION_CODES.Q)
@@ -71,6 +78,14 @@ class MainActivity : ComponentActivity() {
             addAction(WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION)
         }
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(CHANNEL_ID, channelName, importance).apply {
+                description = channelDescription
+            }
+            // Register the channel with the system
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.createNotificationChannel(channel)
+        }
 
 
 
@@ -106,6 +121,17 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+//    // In your Application class or MainActivity
+//    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+//        val name = "Data Usage Alerts"
+//        val descriptionText = "Notifications for data usage thresholds"
+//        val importance = NotificationManager.IMPORTANCE_HIGH
+//        val channel = NotificationChannel("data_usage_channel", name, importance).apply {
+//            description = descriptionText
+//        }
+//        val notificationManager: NotificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+//        notificationManager.createNotificationChannel(channel)
+//    }
 
     private fun startProxyService() {
         val intent = Intent(this, ProxyService::class.java)

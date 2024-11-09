@@ -2,8 +2,11 @@
 package com.example.wifip2photspot
 
 import android.app.Application
+import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
 import android.net.TrafficStats
+import android.net.Uri
 import android.net.wifi.p2p.WifiP2pConfig
 import android.net.wifi.p2p.WifiP2pDevice
 import android.net.wifi.p2p.WifiP2pManager
@@ -14,18 +17,25 @@ import androidx.annotation.RequiresApi
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.app.NotificationCompat
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import com.github.mikephil.charting.data.Entry
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.time.delay
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.delay
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.IOException
 import java.time.LocalDate
+import java.util.concurrent.TimeUnit
+import kotlin.time.Duration.Companion.seconds
 
 @RequiresApi(Build.VERSION_CODES.Q)
 class HotspotViewModel(
@@ -131,14 +141,35 @@ class HotspotViewModel(
     // Load aliases in init block
     private val _deviceAliases = MutableStateFlow<Map<String, String>>(emptyMap())
 //
-    private val _historicalDataUsage = MutableStateFlow<List<DataUsageRecord>>(emptyList())
-    val historicalDataUsage: StateFlow<List<DataUsageRecord>> = _historicalDataUsage.asStateFlow()
+//    private val _historicalDataUsage = MutableStateFlow<List<DataUsageRecord>>(emptyList())
+//    val historicalDataUsage: StateFlow<List<DataUsageRecord>> = _historicalDataUsage.asStateFlow()
 
     private val _uploadSpeedEntries = MutableStateFlow<List<Entry>>(emptyList())
     val uploadSpeedEntries: StateFlow<List<Entry>> = _uploadSpeedEntries.asStateFlow()
 
     private val _downloadSpeedEntries = MutableStateFlow<List<Entry>>(emptyList())
     val downloadSpeedEntries: StateFlow<List<Entry>> = _downloadSpeedEntries.asStateFlow()
+
+
+    // Variables to store current speeds in Kbps
+    private val _uploadSpeedKbps = MutableStateFlow(0f)
+    val uploadSpeedKbps: StateFlow<Float> = _uploadSpeedKbps.asStateFlow()
+
+    private val _downloadSpeedKbps = MutableStateFlow(0f)
+    val downloadSpeedKbps: StateFlow<Float> = _downloadSpeedKbps.asStateFlow()
+
+    private val _dataUsageThreshold = MutableStateFlow<Long>(0L) // in bytes
+    val dataUsageThreshold: StateFlow<Long> = _dataUsageThreshold.asStateFlow()
+
+    private val _notificationEnabled = MutableStateFlow(true)
+    val notificationEnabled: StateFlow<Boolean> = _notificationEnabled.asStateFlow()
+
+    private val _notificationSoundEnabled = MutableStateFlow(true)
+    val notificationSoundEnabled: StateFlow<Boolean> = _notificationSoundEnabled.asStateFlow()
+
+    private val _notificationVibrationEnabled = MutableStateFlow(true)
+    val notificationVibrationEnabled: StateFlow<Boolean> =
+        _notificationVibrationEnabled.asStateFlow()
 
 
 //    private var proxyServer: proxyServer? = null
@@ -189,6 +220,7 @@ class HotspotViewModel(
 
 
     init {
+
         // ----- Load SSID and Password from DataStore -----
         viewModelScope.launch {
             dataStore.data
@@ -205,10 +237,12 @@ class HotspotViewModel(
                 }
         }
         // ----- Start Monitoring Network Speeds -----
+// In the coroutine where you update uploadSpeed and downloadSpeed
         viewModelScope.launch {
+            var time = 0f
             while (true) {
-                kotlinx.coroutines.delay(1000) // Update every second
-
+                delay(1000) // Update every second
+//
                 val currentTxBytes = TrafficStats.getTotalTxBytes()
                 val currentRxBytes = TrafficStats.getTotalRxBytes()
 
@@ -224,9 +258,19 @@ class HotspotViewModel(
 
                 _uploadSpeed.value = uploadSpeedKbps.toInt()
                 _downloadSpeed.value = downloadSpeedKbps.toInt()
+                // Update entries
+                _uploadSpeedEntries.value += Entry(time, uploadSpeedKbps.toFloat())
+                _downloadSpeedEntries.value += Entry(time, downloadSpeedKbps.toFloat())
+                time += 1f
+
+                // Limit the number of entries to, e.g., 60
+                if (_uploadSpeedEntries.value.size > 60) {
+                    _uploadSpeedEntries.value = _uploadSpeedEntries.value.drop(1)
+                    _downloadSpeedEntries.value = _downloadSpeedEntries.value.drop(1)
+                }
+
             }
         }
-
         // Load blocked devices
         viewModelScope.launch {
             dataStore.data.collect { preferences ->
@@ -242,11 +286,59 @@ class HotspotViewModel(
                 _deviceAliases.value = Json.decodeFromString(aliasesJson)
             }
         }
-        // Load historical data usage from DataStore
+//         Load historical data usage from DataStore
+//        viewModelScope.launch {
+//            dataStore.data.collect { preferences ->
+//                val json = preferences[DATA_USAGE_KEY] ?: "[]"
+//                _historicalDataUsage.value = Json.decodeFromString(json)
+//            }
+//        }
+        monitorNetworkSpeeds()
+//
+//        viewModelScope.launch {
+//            dataStore.data.collect { preferences ->
+//                _dataUsageThreshold.value = preferences[DATA_USAGE_THRESHOLD_KEY] ?: 0L
+//            }
+//        }
+
+    }
+
+    @Suppress("EXPERIMENTAL_API_USAGE")
+    private fun monitorNetworkSpeeds() {
         viewModelScope.launch {
-            dataStore.data.collect { preferences ->
-                val json = preferences[DATA_USAGE_KEY] ?: "[]"
-                _historicalDataUsage.value = Json.decodeFromString(json)
+            while (true) {
+                delay(1000L)
+
+                val currentRxBytes = TrafficStats.getTotalRxBytes()
+                val currentTxBytes = TrafficStats.getTotalTxBytes()
+
+                // Calculate the difference in bytes over the last second
+                val rxBytes = currentRxBytes - previousRxBytes
+                val txBytes = currentTxBytes - previousTxBytes
+
+                // Update previous bytes for next calculation
+                previousRxBytes = currentRxBytes
+                previousTxBytes = currentTxBytes
+
+                // Convert bytes to kilobits per second (Kbps)
+                val currentDownloadSpeedKbps = (rxBytes * 8) / 1000f
+                val currentUploadSpeedKbps = (txBytes * 8) / 1000f
+
+                // Update the StateFlows
+                _downloadSpeedKbps.value = currentDownloadSpeedKbps
+                _uploadSpeedKbps.value = currentUploadSpeedKbps
+
+                // Update entries for the graph
+                val time = (System.currentTimeMillis() / 1000f) // Time in seconds
+
+                _downloadSpeedEntries.value += Entry(time, currentDownloadSpeedKbps)
+                _uploadSpeedEntries.value += Entry(time, currentUploadSpeedKbps)
+
+                // Limit the number of entries to, e.g., 60
+                if (_downloadSpeedEntries.value.size > 60) {
+                    _downloadSpeedEntries.value = _downloadSpeedEntries.value.drop(1)
+                    _uploadSpeedEntries.value = _uploadSpeedEntries.value.drop(1)
+                }
             }
         }
     }
@@ -264,6 +356,21 @@ class HotspotViewModel(
 
     // ----- Function to Handle Device List Changes -----
     fun onDevicesChanged(deviceList: Collection<WifiP2pDevice>) {
+        val previousDevices = _connectedDevices.value
+        _connectedDevices.value = deviceList.toList()
+        enforceAccessControl()
+
+        // Check for new connections
+        val newDevices = _connectedDevices.value - previousDevices
+        val disconnectedDevices = previousDevices - _connectedDevices.value
+
+        newDevices.forEach { device ->
+            sendDeviceConnectionNotification(device, connected = true)
+        }
+        disconnectedDevices.forEach { device ->
+            sendDeviceConnectionNotification(device, connected = false)
+        }
+
         Log.d("HotspotViewModel", "Devices changed: ${deviceList.size} devices")
         val blockedAddresses = _blockedMacAddresses.value
         _connectedDeviceInfos.value = deviceList.map { device ->
@@ -275,7 +382,6 @@ class HotspotViewModel(
                 isBlocked = isBlocked
             )
         }
-        enforceAccessControl()
     }
 
 
@@ -386,6 +492,7 @@ class HotspotViewModel(
                             _isProcessing.value = false
                             _eventFlow.emit(UiEvent.ShowToast("Hotspot started successfully."))
                             _eventFlow.emit(UiEvent.StartProxyService)
+                            showHotspotStatusNotification()
 
                         }
 
@@ -441,9 +548,10 @@ class HotspotViewModel(
                             _isProcessing.value = false
                             _eventFlow.emit(UiEvent.ShowToast("Hotspot stopped successfully."))
                             _eventFlow.emit(UiEvent.StopProxyService)
+                            removeHotspotStatusNotification()
 
                         }
-                        saveSessionDataUsage()
+//                        saveSessionDataUsage()
                     }
 
                     override fun onFailure(reason: Int) {
@@ -477,49 +585,177 @@ class HotspotViewModel(
         passwordVisible = isVisible
     }
     //*****************************************************Fine****************************************
+
+//    fun updateDataUsageThreshold(threshold: Long) {
+//        _dataUsageThreshold.value = threshold
+//        // Save to DataStore
+//        viewModelScope.launch {
+//            dataStore.edit { preferences ->
+//                preferences[DATA_USAGE_THRESHOLD_KEY] = threshold
+//            }
+//        }
+//    }
+
+
 // In the coroutine where you update uploadSpeed and downloadSpeed
-    viewModelScope.launch {
-        var time = 0f
-        while (true) {
-            delay(1000)
-            // Existing code to update speeds
+//    viewModelScope.launch {
+//        var time = 0f
+//        while (true) {
+//            delay(1000)
+//            // Existing code to update speeds
+//
+//            // Update entries
+//            _uploadSpeedEntries.value = _uploadSpeedEntries.value + Entry(time, uploadSpeedKbps.toFloat())
+//            _downloadSpeedEntries.value = _downloadSpeedEntries.value + Entry(time, downloadSpeedKbps.toFloat())
+//            time += 1f
+//
+//            // Limit the number of entries to, e.g., 60
+//            if (_uploadSpeedEntries.value.size > 60) {
+//                _uploadSpeedEntries.value = _uploadSpeedEntries.value.drop(1)
+//                _downloadSpeedEntries.value = _downloadSpeedEntries.value.drop(1)
+//            }
+////            if (sessionRxBytes + sessionTxBytes >= dataUsageThreshold.value && !thresholdReached) {
+////                thresholdReached = true
+////                sendDataUsageNotification()
+////            }
+//        }
+//    }
 
-            // Update entries
-            val uploadSpeedKbps = null
-            _uploadSpeedEntries.value = _uploadSpeedEntries.value + Entry(time, uploadSpeedKbps.toFloat())
-            val downloadSpeedKbps = null
-            _downloadSpeedEntries.value = _downloadSpeedEntries.value + Entry(time, downloadSpeedKbps.toFloat())
-            time += 1f
 
-            // Limit the number of entries to, e.g., 60
-            if (_uploadSpeedEntries.value.size > 60) {
-                _uploadSpeedEntries.value = _uploadSpeedEntries.value.drop(1)
-                _downloadSpeedEntries.value = _downloadSpeedEntries.value.drop(1)
+//    fun saveSessionDataUsage() {
+//        val (rxBytes, txBytes) = getSessionDataUsage()
+//        val today = LocalDate.now()
+//        val existingRecord = _historicalDataUsage.value.find { it.date == today }
+//        val updatedRecord = existingRecord?.copy(
+//            rxBytes = existingRecord.rxBytes + rxBytes,
+//            txBytes = existingRecord.txBytes + txBytes
+//        )
+//            ?: DataUsageRecord(date = today, rxBytes = rxBytes, txBytes = txBytes)
+//        val updatedList = _historicalDataUsage.value.filterNot { it.date == today } + updatedRecord
+//        _historicalDataUsage.value = updatedList
+
+    // Save to DataStore
+//        val json = Json.encodeToString(updatedList)
+//        viewModelScope.launch {
+//            dataStore.edit { preferences ->
+//                preferences[DATA_USAGE_KEY] = json
+//            }
+//        }
+//    }
+//
+//    fun sendDataUsageNotification() {
+//        val notificationManager = getApplication<Application>().getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+//        val notificationId = 1
+//
+//        val notification = NotificationCompat.Builder(getApplication<Application>(), "data_usage_channel")
+//            .setSmallIcon(R.drawable.ic_notification)
+//            .setContentTitle("Data Usage Alert")
+//            .setContentText("You have reached your data usage threshold.")
+//            .setPriority(NotificationCompat.PRIORITY_HIGH)
+//            .build()
+//
+//        notificationManager.notify(notificationId, notification)
+//    }
+    fun contactSupport() {
+        val intent = Intent(Intent.ACTION_SENDTO).apply {
+            data = Uri.parse("mailto:")
+            putExtra(Intent.EXTRA_EMAIL, arrayOf("2024@example.com"))
+            putExtra(Intent.EXTRA_SUBJECT, "Support Request")
+        }
+        intent.resolveActivity(getApplication<Application>().packageManager)?.let {
+            getApplication<Application>().startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } ?: run {
+            viewModelScope.launch {
+                _eventFlow.emit(UiEvent.ShowToast("No email client available"))
             }
         }
     }
 
 
-
-    fun saveSessionDataUsage() {
-        val (rxBytes, txBytes) = getSessionDataUsage()
-        val today = LocalDate.now()
-        val existingRecord = _historicalDataUsage.value.find { it.date == today }
-        val updatedRecord = existingRecord?.copy(
-            rxBytes = existingRecord.rxBytes + rxBytes,
-            txBytes = existingRecord.txBytes + txBytes
-        )
-            ?: DataUsageRecord(date = today, rxBytes = rxBytes, txBytes = txBytes)
-        val updatedList = _historicalDataUsage.value.filterNot { it.date == today } + updatedRecord
-        _historicalDataUsage.value = updatedList
-
-        // Save to DataStore
-        val json = Json.encodeToString(updatedList)
-        viewModelScope.launch {
-            dataStore.edit { preferences ->
-                preferences[DATA_USAGE_KEY] = json
+    fun submitFeedback(feedback: String) {
+        // Send feedback via email or to a server
+        // For example, open an email intent
+        val intent = Intent(Intent.ACTION_SENDTO).apply {
+            data = Uri.parse("mailto:")
+            putExtra(Intent.EXTRA_EMAIL, arrayOf("support@example.com"))
+            putExtra(Intent.EXTRA_SUBJECT, "App Feedback")
+            putExtra(Intent.EXTRA_TEXT, feedback)
+        }
+        intent.resolveActivity(getApplication<Application>().packageManager)?.let {
+            getApplication<Application>().startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } ?: run {
+            // Handle the case where no email client is available
+            viewModelScope.launch {
+                _eventFlow.emit(UiEvent.ShowToast("No email client available"))
             }
         }
+    }
+
+    fun sendDeviceConnectionNotification(device: WifiP2pDevice, connected: Boolean) {
+        val notificationManager =
+            getApplication<Application>().getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val notificationId = device.deviceAddress.hashCode()
+
+        val contentText = if (connected) {
+            "Device connected: ${device.deviceName}"
+        } else {
+            "Device disconnected: ${device.deviceName}"
+        }
+
+        val notification =
+            NotificationCompat.Builder(getApplication<Application>(), "device_connection_channel")
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle("Device Connection")
+                .setContentText(contentText)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .build()
+
+        notificationManager.notify(notificationId, notification)
+    }
+
+    fun showHotspotStatusNotification() {
+        val notificationManager =
+            getApplication<Application>().getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val notificationId = 1000 // Unique ID for the hotspot status notification
+
+        val notification = NotificationCompat.Builder(getApplication<Application>(), "tether_guard")
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Title")
+            .setContentText("Content")
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .apply {
+                if (!notificationSoundEnabled.value) {
+                    setSound(null)
+                }
+                if (!notificationVibrationEnabled.value) {
+                    setVibrate(null)
+                }
+            }
+            .build()
+    }
+
+    fun removeHotspotStatusNotification() {
+        val notificationManager =
+            getApplication<Application>().getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val notificationId = 1000
+        notificationManager.cancel(notificationId)
+    }
+
+    fun scheduleHotspotStart(timeInMillis: Long) {
+        val delay = timeInMillis - System.currentTimeMillis()
+        val workRequest = OneTimeWorkRequestBuilder<StartHotspotWorker>()
+            .setInitialDelay(delay, TimeUnit.MILLISECONDS)
+            .build()
+        WorkManager.getInstance(getApplication()).enqueue(workRequest)
+    }
+
+    fun scheduleHotspotStop(timeInMillis: Long) {
+        val delay = timeInMillis - System.currentTimeMillis()
+        val workRequest = OneTimeWorkRequestBuilder<StopHotspotWorker>()
+            .setInitialDelay(delay, TimeUnit.MILLISECONDS)
+            .build()
+        WorkManager.getInstance(getApplication()).enqueue(workRequest)
     }
 
 
@@ -672,5 +908,20 @@ class HotspotViewModel(
                 deviceInfo
             }
         }
+    }
+
+    fun updateNotificationEnabled(enabled: Boolean) {
+        _notificationEnabled.value = enabled
+        // Save to DataStore
+    }
+
+    fun updateNotificationSoundEnabled(enabled: Boolean) {
+        _notificationSoundEnabled.value = enabled
+        // Save to DataStore
+    }
+
+    fun updateNotificationVibrationEnabled(enabled: Boolean) {
+        _notificationVibrationEnabled.value = enabled
+        // Save to DataStore
     }
 }

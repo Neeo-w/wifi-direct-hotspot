@@ -195,9 +195,9 @@ fun WiFiP2PHotspotApp(
                             txBytes = sessionTxBytes
                         )
                     }
-                    item {
-                        HistoricalDataUsageSection(historicalData = viewModel.historicalDataUsage.value)
-                    }
+//                    item {
+//                        HistoricalDataUsageSection(historicalData = viewModel.historicalDataUsage.value)
+//                    }
                     item {
                         SpeedGraphSection(
                             uploadSpeeds = uploadSpeedEntries,
@@ -237,6 +237,20 @@ fun WiFiP2PHotspotApp(
                         showServiceEnableDialog = true
                     }
                 }
+                item {
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+                item {
+                    NotificationSettingsSection(
+                        notificationEnabled = viewModel.notificationEnabled.value,
+                        onNotificationEnabledChange = { viewModel.updateNotificationEnabled(it) },
+                        soundEnabled = viewModel.notificationSoundEnabled.value,
+                        onSoundEnabledChange = { viewModel.updateNotificationSoundEnabled(it) },
+                        vibrationEnabled = viewModel.notificationVibrationEnabled.value,
+                        onVibrationEnabledChange = { viewModel.updateNotificationVibrationEnabled(it) }
+                    )
+                }
+
                 if (isHotspotEnabled) {
                     // Connected Devices Section
                     connectedDevicesSection(
@@ -272,6 +286,16 @@ fun WiFiP2PHotspotApp(
                         )
                     }
                 }
+//                item {
+//                    HotspotScheduler(
+//                        onScheduleStart = { timeInMillis ->
+//                            viewModel.scheduleHotspotStart(timeInMillis)
+//                        },
+//                        onScheduleStop = { timeInMillis ->
+//                            viewModel.scheduleHotspotStop(timeInMillis)
+//                        }
+//                    )
+//                }
 
                 item {
                     Spacer(modifier = Modifier.height(16.dp))
@@ -280,6 +304,16 @@ fun WiFiP2PHotspotApp(
                 // Log Section
                 item {
                     LogSection(logEntries = logEntries)
+                }
+                item {
+                    FeedbackForm(onSubmit = { feedback ->
+                        viewModel.submitFeedback(feedback)
+                    })
+                }
+                item {
+                    ContactSupportSection(onContactSupport = {
+                        viewModel.contactSupport()
+                    })
                 }
             }
         }

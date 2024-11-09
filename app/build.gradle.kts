@@ -79,6 +79,12 @@ dependencies {
 
     implementation("com.github.PhilJay:MPAndroidChart:v3.1.0")
 
+    implementation ("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.5.2") // Version before 1.6.0
+
+    implementation ("androidx.work:work-runtime-ktx:2.7.1")
+
+
+
 //    implementation(libs.charts)
 
 

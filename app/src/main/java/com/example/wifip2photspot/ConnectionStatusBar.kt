@@ -302,16 +302,16 @@ fun formatBytes(bytes: Long): String {
     }
 }
 
-@Composable
-fun HistoricalDataUsageSection(historicalData: List<DataUsageRecord>) {
-    Column(modifier = Modifier.padding(16.dp)) {
-        Text("Historical Data Usage", style = MaterialTheme.typography.titleMedium)
-        Spacer(modifier = Modifier.height(8.dp))
-        historicalData.forEach { record ->
-            Text("${record.date}: Download ${formatBytes(record.rxBytes)}, Upload ${formatBytes(record.txBytes)}")
-        }
-    }
-}
+//@Composable
+//fun HistoricalDataUsageSection(historicalData: List<DataUsageRecord>) {
+//    Column(modifier = Modifier.padding(16.dp)) {
+//        Text("Historical Data Usage", style = MaterialTheme.typography.titleMedium)
+//        Spacer(modifier = Modifier.height(8.dp))
+//        historicalData.forEach { record ->
+//            Text("${record.date}: Download ${formatBytes(record.rxBytes)}, Upload ${formatBytes(record.txBytes)}")
+//        }
+//    }
+//}
 
 @Composable
 fun SpeedGraphSection(
@@ -342,3 +342,4 @@ fun SpeedGraphSection(
             .height(200.dp)
     )
 }
+

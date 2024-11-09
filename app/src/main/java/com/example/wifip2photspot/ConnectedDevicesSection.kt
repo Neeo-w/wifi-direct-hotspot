@@ -1,5 +1,7 @@
 package com.example.wifip2photspot
 
+import android.app.TimePickerDialog
+import android.content.Context
 import android.net.wifi.p2p.WifiP2pDevice
 
 import androidx.compose.foundation.clickable
@@ -20,10 +22,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -338,3 +342,72 @@ fun LazyListScope.connectedDevicesSection(
 //        else -> "Unknown"
 //    }
 //}
+
+@Composable
+fun HotspotScheduler(
+    onScheduleStart: (Long) -> Unit,
+    onScheduleStop: (Long) -> Unit
+) {
+    val context = LocalContext.current
+    var startTime by remember { mutableStateOf<Long?>(null) }
+    var stopTime by remember { mutableStateOf<Long?>(null) }
+
+    Column(modifier = Modifier.padding(16.dp)) {
+        Text("Hotspot Scheduler", style = MaterialTheme.typography.titleMedium)
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Button(onClick = {
+            showTimePicker(context) { timeInMillis ->
+                startTime = timeInMillis
+            }
+        }) {
+            Text("Set Start Time")
+        }
+        startTime?.let {
+            Text("Start Time: ${formatTime(it)}")
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Button(onClick = {
+            showTimePicker(context) { timeInMillis ->
+                stopTime = timeInMillis
+            }
+        }) {
+            Text("Set Stop Time")
+        }
+        stopTime?.let {
+            Text("Stop Time: ${formatTimes(it)}")
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Button(onClick = {
+            startTime?.let { onScheduleStart(it) }
+            stopTime?.let { onScheduleStop(it) }
+        }) {
+            Text("Schedule Hotspot")
+        }
+    }
+}
+
+// Helper functions
+fun showTimePicker(context: Context, onTimeSelected: (Long) -> Unit) {
+    val calendar = Calendar.getInstance()
+    TimePickerDialog(
+        context,
+        { _, hourOfDay, minute ->
+            calendar.set(Calendar.HOUR_OF_DAY, hourOfDay)
+            calendar.set(Calendar.MINUTE, minute)
+            onTimeSelected(calendar.timeInMillis)
+        },
+        calendar.get(Calendar.HOUR_OF_DAY),
+        calendar.get(Calendar.MINUTE),
+        true
+    ).show()
+}
+
+fun formatTimes(timeInMillis: Long): String {
+    val sdf = SimpleDateFormat("HH:mm", Locale.getDefault())
+    return sdf.format(Date(timeInMillis))
+}
