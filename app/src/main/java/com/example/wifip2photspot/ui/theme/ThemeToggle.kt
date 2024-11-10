@@ -5,8 +5,10 @@ package com.example.wifip2photspot.ui.theme
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.example.wifip2photspot.SwitchPreference
 
 @Composable
 fun ThemeToggle(
@@ -16,18 +18,18 @@ fun ThemeToggle(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(8.dp),
-        horizontalArrangement = Arrangement.End
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(text = "Dark Theme")
-        Spacer(modifier = Modifier.width(8.dp))
-        Switch(
+//        Text("Dark Theme", style = MaterialTheme.typography.bodyLarge)
+        SwitchPreference(
+            label = "Dark Theme",
             checked = isDarkTheme,
-            onCheckedChange = onToggle,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = MaterialTheme.colorScheme.primary,
-                uncheckedThumbColor = MaterialTheme.colorScheme.onSurface
-            )
+            onCheckedChange = onToggle
+
         )
     }
 }
+
+

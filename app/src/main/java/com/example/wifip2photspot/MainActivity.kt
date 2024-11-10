@@ -23,6 +23,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import androidx.lifecycle.ViewModelProvider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -30,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.contentcapture.ContentCaptureManager.Companion.isEnabled
+import androidx.navigation.compose.rememberNavController
 import com.example.wifip2photspot.Proxy.ProxyService
 import com.example.wifip2photspot.Proxy.ProxyService.Companion.CHANNEL_ID
 import com.example.wifip2photspot.ui.theme.WiFiP2PHotspotTheme
@@ -83,10 +85,10 @@ class MainActivity : ComponentActivity() {
                 description = channelDescription
             }
             // Register the channel with the system
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val notificationManager =
+                getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
         }
-
 
 
 //        // Request necessary permissions
@@ -94,33 +96,50 @@ class MainActivity : ComponentActivity() {
 //            requestPermissions()
 //        }
 
+//        setContent {
+//            // Theme State
+//            var isDarkTheme by rememberSaveable { mutableStateOf(false) }
+//            WiFiP2PHotspotTheme(useDarkTheme = isDarkTheme) {
+//                Surface(
+//                    modifier = Modifier.fillMaxSize(),
+//                    color = MaterialTheme.colorScheme.background
+//                ) {
+//                    PermissionHandler {
+//                        WiFiP2PHotspotApp(
+//                            viewModel = viewModel,
+//                            activity = this,
+//                            isDarkTheme = isDarkTheme,
+//                            onThemeChange = { isDark ->
+//                                isDarkTheme = isDark
+//                            })
+//                        // Start or stop the proxy based on the hotspot state
+//                        if (isEnabled) {
+//                            startProxyService()
+//                        } else {
+//                            stopProxyService()
+//                        }
+//                    }
+//                }
+//            }
+//        }
+        val viewModel = ViewModelProvider(
+            this,
+            HotspotViewModelFactory(application, dataStore)
+        ).get(HotspotViewModel::class.java)
+
         setContent {
-            // Theme State
-            var isDarkTheme by rememberSaveable { mutableStateOf(false) }
+            val isDarkTheme by viewModel.isDarkTheme.collectAsState()
             WiFiP2PHotspotTheme(useDarkTheme = isDarkTheme) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    PermissionHandler {
-                        WiFiP2PHotspotApp(
-                            viewModel = viewModel,
-                            activity = this,
-                            isDarkTheme = isDarkTheme,
-                            onThemeChange = { isDark ->
-                                isDarkTheme = isDark
-                            })
-                        // Start or stop the proxy based on the hotspot state
-                        if (isEnabled) {
-                            startProxyService()
-                        } else {
-                            stopProxyService()
-                        }
-                    }
+                    WiFiP2PHotspotApp(viewModel = viewModel)
                 }
             }
         }
     }
+
 //    // In your Application class or MainActivity
 //    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
 //        val name = "Data Usage Alerts"

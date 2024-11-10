@@ -84,6 +84,9 @@ dependencies {
     implementation ("androidx.work:work-runtime-ktx:2.7.1")
 
 
+    implementation ("androidx.navigation:navigation-compose:2.8.3")
+
+
 
 //    implementation(libs.charts)
 

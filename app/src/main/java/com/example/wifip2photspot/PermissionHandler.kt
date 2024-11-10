@@ -9,9 +9,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LocalLifecycleOwner
 
 @Composable
 fun PermissionHandler(content: @Composable () -> Unit) {
@@ -72,3 +74,63 @@ fun PermissionHandler(content: @Composable () -> Unit) {
         content()
     }
 }
+//
+//@Composable
+//fun RequestPermissions(onPermissionsGranted: () -> Unit) {
+//    val context = LocalContext.current
+//    val lifecycleOwner = LocalLifecycleOwner.current
+//
+//    val permissionState = rememberMultiplePermissionsState(
+//        permissions = listOf(
+//            android.Manifest.permission.ACCESS_FINE_LOCATION,
+//            android.Manifest.permission.CHANGE_WIFI_STATE,
+//            android.Manifest.permission.ACCESS_WIFI_STATE
+//        )
+//    )
+//
+//    LaunchedEffect(key1 = true) {
+//        permissionState.launchMultiplePermissionRequest()
+//    }
+//
+//    when {
+//        permissionState.allPermissionsGranted -> {
+//            onPermissionsGranted()
+//        }
+//        permissionState.shouldShowRationale -> {
+//            // Show rationale and request permission again
+//            AlertDialog(
+//                onDismissRequest = { /* Handle dismiss */ },
+//                title = { Text("Permissions Required") },
+//                text = { Text("This app requires location and Wi-Fi permissions to function correctly.") },
+//                confirmButton = {
+//                    TextButton(onClick = { permissionState.launchMultiplePermissionRequest() }) {
+//                        Text("Grant")
+//                    }
+//                },
+//                dismissButton = {
+//                    TextButton(onClick = { /* Handle dismiss */ }) {
+//                        Text("Cancel")
+//                    }
+//                }
+//            )
+//        }
+//        else -> {
+//            // Permissions denied permanently
+//            AlertDialog(
+//                onDismissRequest = { /* Handle dismiss */ },
+//                title = { Text("Permissions Denied") },
+//                text = { Text("Please enable permissions from settings.") },
+//                confirmButton = {
+//                    TextButton(onClick = { /* Open app settings */ }) {
+//                        Text("Settings")
+//                    }
+//                },
+//                dismissButton = {
+//                    TextButton(onClick = { /* Handle dismiss */ }) {
+//                        Text("Cancel")
+//                    }
+//                }
+//            )
+//        }
+//    }
+//}
