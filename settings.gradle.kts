@@ -16,9 +16,12 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+
+        // Add JitPack repository
+        maven("https://jitpack.io")
     }
 }
 
 rootProject.name = "wifip2photspot"
 include(":app")
- 
+
