@@ -2,62 +2,58 @@
 package com.example.wifip2photspot
 
 
-import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.location.LocationManager
 import android.net.Uri
 import android.net.wifi.WifiManager
-import android.os.Build
 import android.provider.Settings
-import android.util.Log
-import android.widget.Toast
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Button
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.example.wifip2photspot.Proxy.ProxyService
-import com.example.wifip2photspot.ui.IdleCountdownDisplay
 import com.example.wifip2photspot.ui.SettingsScreen
 import com.example.wifip2photspot.ui.screens.MainScreen
+import com.example.wifip2photspot.viewModel.HotspotViewModel
+import com.example.wifip2photspot.viewModel.VpnViewModel
 
 @Composable
-fun WiFiP2PHotspotApp(viewModel: HotspotViewModel) {
+fun WiFiP2PHotspotApp(
+    hotspotViewModel: HotspotViewModel,
+    vpnViewModel: VpnViewModel
+) {
     val navController = rememberNavController()
-
-    WiFiP2PHotspotNavHost(navController = navController, viewModel = viewModel)
+    WiFiP2PHotspotNavHost(
+        navController = navController,
+        hotspotViewModel = hotspotViewModel,
+        vpnViewModel = vpnViewModel
+    )
 }
 
 @Composable
-fun WiFiP2PHotspotNavHost(navController: NavHostController, viewModel: HotspotViewModel) {
+fun WiFiP2PHotspotNavHost(
+    navController: NavHostController,
+    hotspotViewModel: HotspotViewModel,
+    vpnViewModel: VpnViewModel
+) {
     NavHost(navController = navController, startDestination = "main_screen") {
         composable("main_screen") {
-            MainScreen(navController = navController, viewModel = viewModel)
+            MainScreen(
+                navController = navController,
+                hotspotViewModel = hotspotViewModel,
+                vpnViewModel = vpnViewModel
+            )
         }
         composable("settings_screen") {
-            SettingsScreen(navController = navController, viewModel = viewModel)
+            SettingsScreen(
+                navController = navController,
+                hotspotViewModel = hotspotViewModel,
+                vpnViewModel = vpnViewModel
+            )
         }
-        // Add other destinations if needed
     }
 }
 //

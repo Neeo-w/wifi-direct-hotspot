@@ -2,21 +2,13 @@ package com.example.wifip2photspot
 
 
 
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.layout.padding
+import com.example.wifip2photspot.viewModel.HotspotViewModel
 
 //@OptIn(ExperimentalMaterial3Api::class)
 //@Composable
@@ -26,7 +18,7 @@ import androidx.compose.foundation.layout.padding
 @Composable
 fun ImprovedHeader(
     isHotspotEnabled: Boolean,
-    viewModel: HotspotViewModel,
+    HotspotViewModel: HotspotViewModel,
     onSettingsClick: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }

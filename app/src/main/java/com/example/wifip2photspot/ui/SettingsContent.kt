@@ -1,52 +1,41 @@
 package com.example.wifip2photspot.ui
 
 
-import android.annotation.SuppressLint
-import android.app.Activity
-import android.content.Context
-import android.content.Intent
-import android.location.LocationManager
-import android.net.Uri
-import android.net.VpnService
-import android.net.wifi.WifiManager
-import android.os.Build
-import android.provider.Settings
-import android.util.Log
-import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import com.example.wifip2photspot.BandSelection
 import com.example.wifip2photspot.ContactSupportSection
 import com.example.wifip2photspot.FeedbackForm
-import com.example.wifip2photspot.HotspotViewModel
+import com.example.wifip2photspot.viewModel.HotspotViewModel
 import com.example.wifip2photspot.NotificationSettingsSection
+import com.example.wifip2photspot.VPN.VpnSettingsSection
 import com.example.wifip2photspot.ui.theme.ThemeToggle
+import com.example.wifip2photspot.viewModel.VpnViewModel
 
 @Composable
-fun SettingsContent(viewModel: HotspotViewModel, paddingValues: PaddingValues) {
+fun SettingsContent(
+    hotspotViewModel: HotspotViewModel,
+    vpnViewModel: VpnViewModel,
+    paddingValues: PaddingValues
+) {
     // Collect necessary state from ViewModel
-    val isDarkTheme by viewModel.isDarkTheme.collectAsState()
-    val notificationEnabled by viewModel.notificationEnabled.collectAsState()
-    val soundEnabled by viewModel.notificationSoundEnabled.collectAsState()
-    val vibrationEnabled by viewModel.notificationVibrationEnabled.collectAsState()
-    val autoShutdownEnabled by viewModel.autoShutdownEnabled.collectAsState()
-    val idleTimeoutMinutes by viewModel.idleTimeoutMinutes.collectAsState()
-    val wifiLockEnabled by viewModel.wifiLockEnabled.collectAsState()
-    val selectedBand by viewModel.selectedBand.collectAsState()
-    val isHotspotEnabled by viewModel.isHotspotEnabled.collectAsState()
+    val isDarkTheme by hotspotViewModel.isDarkTheme.collectAsState()
+    val notificationEnabled by hotspotViewModel.notificationEnabled.collectAsState()
+    val soundEnabled by hotspotViewModel.notificationSoundEnabled.collectAsState()
+    val vibrationEnabled by hotspotViewModel.notificationVibrationEnabled.collectAsState()
+    val autoShutdownEnabled by hotspotViewModel.autoShutdownEnabled.collectAsState()
+    val idleTimeoutMinutes by hotspotViewModel.idleTimeoutMinutes.collectAsState()
+    val wifiLockEnabled by hotspotViewModel.wifiLockEnabled.collectAsState()
+    val selectedBand by hotspotViewModel.selectedBand.collectAsState()
+    val isHotspotEnabled by hotspotViewModel.isHotspotEnabled.collectAsState()
+
+    val isVpnActive by vpnViewModel.isVpnActive.collectAsState()
+    val vpnStatusMessage by vpnViewModel.vpnStatusMessage.collectAsState()
+
 
     Column(
         modifier = Modifier
@@ -61,7 +50,7 @@ fun SettingsContent(viewModel: HotspotViewModel, paddingValues: PaddingValues) {
         ThemeToggle(
             isDarkTheme = isDarkTheme,
             onToggle = { isDark ->
-                viewModel.updateTheme(isDark)
+                hotspotViewModel.updateTheme(isDark)
             }
         )
 
@@ -70,11 +59,11 @@ fun SettingsContent(viewModel: HotspotViewModel, paddingValues: PaddingValues) {
         // Notification Settings
         NotificationSettingsSection(
             notificationEnabled = notificationEnabled,
-            onNotificationEnabledChange = { viewModel.updateNotificationEnabled(it) },
+            onNotificationEnabledChange = { hotspotViewModel.updateNotificationEnabled(it) },
             soundEnabled = soundEnabled,
-            onSoundEnabledChange = { viewModel.updateNotificationSoundEnabled(it) },
+            onSoundEnabledChange = { hotspotViewModel.updateNotificationSoundEnabled(it) },
             vibrationEnabled = vibrationEnabled,
-            onVibrationEnabledChange = { viewModel.updateNotificationVibrationEnabled(it) }
+            onVibrationEnabledChange = { hotspotViewModel.updateNotificationVibrationEnabled(it) }
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -82,9 +71,9 @@ fun SettingsContent(viewModel: HotspotViewModel, paddingValues: PaddingValues) {
         // Idle Settings
         IdleSettingsSection(
             autoShutdownEnabled = autoShutdownEnabled,
-            onAutoShutdownEnabledChange = { viewModel.updateAutoShutdownEnabled(it) },
+            onAutoShutdownEnabledChange = { hotspotViewModel.updateAutoShutdownEnabled(it) },
             idleTimeoutMinutes = idleTimeoutMinutes,
-            onIdleTimeoutChange = { viewModel.updateIdleTimeoutMinutes(it) }
+            onIdleTimeoutChange = { hotspotViewModel.updateIdleTimeoutMinutes(it) }
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -92,7 +81,7 @@ fun SettingsContent(viewModel: HotspotViewModel, paddingValues: PaddingValues) {
         // Wi-Fi Lock Settings
         WifiLockSettingsSection(
             wifiLockEnabled = wifiLockEnabled,
-            onWifiLockEnabledChange = { viewModel.updateWifiLockEnabled(it) }
+            onWifiLockEnabledChange = { hotspotViewModel.updateWifiLockEnabled(it) }
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -100,23 +89,37 @@ fun SettingsContent(viewModel: HotspotViewModel, paddingValues: PaddingValues) {
         // Band Selection (if applicable)
         BandSelection(
             selectedBand = selectedBand,
-            onBandSelected = { viewModel.updateSelectedBand(it) },
+            onBandSelected = { hotspotViewModel.updateSelectedBand(it) },
             bands = listOf("Auto", "2.4GHz", "5GHz"),
             isHotspotEnabled = isHotspotEnabled
         )
 
         Spacer(modifier = Modifier.height(16.dp))
 
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // VPN Settings Section
+        VpnSettingsSection(
+            isVpnActive = isVpnActive,
+            vpnStatusMessage = vpnStatusMessage,
+            onVpnToggle = { enabled ->
+                vpnViewModel.toggleVpn(enabled)
+            }
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
         // Feedback Form
         FeedbackForm(onSubmit = { feedback ->
-            viewModel.submitFeedback(feedback)
+            hotspotViewModel.submitFeedback(feedback)
         })
 
         Spacer(modifier = Modifier.height(16.dp))
 
         // Contact Support Section
         ContactSupportSection(onContactSupport = {
-            viewModel.contactSupport()
+            hotspotViewModel.contactSupport()
         })
 
         Spacer(modifier = Modifier.height(16.dp))

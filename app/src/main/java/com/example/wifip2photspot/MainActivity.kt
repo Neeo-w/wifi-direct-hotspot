@@ -1,78 +1,144 @@
 // MainActivity.kt
 package com.example.wifip2photspot
 
-import android.Manifest
-import android.app.AlertDialog
+import android.app.Activity
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.content.Context
+import android.content.BroadcastReceiver
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.PackageManager
+import android.net.VpnService
 import android.net.wifi.p2p.WifiP2pManager
 import android.os.Build
 import android.os.Bundle
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.lifecycle.ViewModelProvider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.contentcapture.ContentCaptureManager.Companion.isEnabled
-import androidx.navigation.compose.rememberNavController
-import com.example.wifip2photspot.Proxy.ProxyService
-import com.example.wifip2photspot.Proxy.ProxyService.Companion.CHANNEL_ID
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.app.NotificationManagerCompat
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+//import com.example.wifip2photspot.Proxy.ProxyService
+//import com.example.wifip2photspot.Proxy.ProxyService.Companion.CHANNEL_ID
 import com.example.wifip2photspot.ui.theme.WiFiP2PHotspotTheme
+import com.example.wifip2photspot.viewModel.HotspotViewModel
+import com.example.wifip2photspot.viewModel.HotspotViewModelFactory
+import com.example.wifip2photspot.viewModel.VpnViewModel
+import com.example.wifip2photspot.viewModel.VpnViewModelFactory
+import com.example.wifip2photspot.viewModel.WifiDirectBroadcastReceiver
+import com.example.wifip2photspot.VPN.VpnRepository
+import android.app.Application
+import android.content.Context
 
-private val Context.dataStore by preferencesDataStore(name = "settings")
+//private val Context.dataStore by preferencesDataStore(name = "settings")
 
 class MainActivity : ComponentActivity() {
+    private lateinit var hotspotViewModel: HotspotViewModel
+    private lateinit var vpnViewModel: VpnViewModel
+    private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
-    private lateinit var viewModel: HotspotViewModel
+//    // Define the permission launcher as a member variable
+//    private val requestPermissionLauncher = registerForActivityResult(
+//        ActivityResultContracts.RequestPermission()
+//    ) { isGranted: Boolean ->
+//        if (isGranted) {
+//            // Permission granted, proceed with notifications
+//            // You can send a confirmation toast or log if needed
+//        } else {
+//            // Permission denied, show alert to guide user
+//            showNotificationSettingsAlert.value = true
+//        }
+//    }
+//    // Mutable state to control the visibility of NotificationSettingsAlert
+//    private val showNotificationSettingsAlert = mutableStateOf(false)
+
+
+//    private lateinit var viewModel: HotspotViewModel
+
     private lateinit var receiver: WifiDirectBroadcastReceiver
     private lateinit var intentFilter: IntentFilter
+
+    //    private lateinit var receiver: BroadcastReceiver
+    private lateinit var wifiManager: WifiP2pManager
+    private lateinit var channel: WifiP2pManager.Channel
+    private lateinit var notificationManager: NotificationManager
+
+
+    private val VPN_REQUEST_CODE = 1001
 
     private val channelName = "Data Usage Alerts"
     private val channelDescription = "Notifications for data usage thresholds"
     private val importance = NotificationManager.IMPORTANCE_HIGH
 
+
+
     @OptIn(ExperimentalComposeUiApi::class)
     @RequiresApi(Build.VERSION_CODES.Q)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Request Notification Permission for Android 13+
 
-        // Initialize DataStore
-        val dataStore = applicationContext.dataStore
+//
+//        // Create notification channels
+//        createNotificationChannel()
 
-        // Initialize ViewModel with Factory
-        viewModel = ViewModelProvider(
-            this,
-            HotspotViewModelFactory(application, dataStore)
-        )[HotspotViewModel::class.java]
+        // Initialize Repository
+        val vpnRepository = VpnRepository(application)
+//        val dataStore = YourDataStoreType(this) // Initialize appropriately
 
-        // Initialize and Register BroadcastReceiver
-        receiver = WifiDirectBroadcastReceiver(
-            manager = viewModel.wifiManager,
-            channel = viewModel.channel,
-            viewModel = viewModel
-        )
-//        intentFilter = IntentFilter().apply {
-//            addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION)
-//            addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION)
-//            // Add other actions if necessary
+        System.setProperty("user.home", filesDir.absolutePath)
+
+// Initialize VpnViewModel
+        val vpnViewModelFactory = VpnViewModelFactory(application, dataStore, vpnRepository)
+        vpnViewModel = ViewModelProvider(this, vpnViewModelFactory).get(VpnViewModel::class.java)
+
+        // Initialize HotspotViewModel
+        val hotspotViewModelFactory = HotspotViewModelFactory(application, dataStore, vpnRepository)
+        hotspotViewModel =
+            ViewModelProvider(this, hotspotViewModelFactory).get(HotspotViewModel::class.java)
+
+        wifiManager =
+            applicationContext.getSystemService(Context.WIFI_P2P_SERVICE) as WifiP2pManager
+        channel = wifiManager.initialize(this, mainLooper, null)
+
+//        // Initialize NotificationManager
+//        notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+//        // Mutable state to control the visibility of NotificationSettingsAlert
+//        val showNotificationSettingsAlert = mutableStateOf(false)
+
+        // Define the permission launcher as a member variable
+//        val requestPermissionLauncher = registerForActivityResult(
+//            ActivityResultContracts.RequestPermission()
+//        ) { isGranted: Boolean ->
+//            if (isGranted) {
+//                // Permission granted, proceed with notifications
+//            } else {
+//                // Permission denied, show alert to guide user
+//                showNotificationSettingsAlert.value = true
+//            }
 //        }
+        // Initialize the BroadcastReceiver
+        receiver = WifiDirectBroadcastReceiver(
+            manager = wifiManager, // Ensure wifiManager is initialized
+            channel = channel, // Ensure channel is initialized
+            viewModel = hotspotViewModel
+        )
+
+        // Initialize IntentFilter
         intentFilter = IntentFilter().apply {
             addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION)
             addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION)
@@ -80,15 +146,44 @@ class MainActivity : ComponentActivity() {
             addAction(WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION)
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(CHANNEL_ID, channelName, importance).apply {
-                description = channelDescription
-            }
-            // Register the channel with the system
-            val notificationManager =
-                getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(channel)
-        }
+//        // Initialize DataStore
+//        val dataStore = applicationContext.dataStore
+
+        // Initialize ViewModel with Factory
+//        viewModel = ViewModelProvider(
+//            this,
+//            HotspotViewModelFactory(application, dataStore,vpnRepository)
+//        )[HotspotViewModel::class.java]
+
+        // Initialize and Register BroadcastReceiver
+//        receiver = WifiDirectBroadcastReceiver(
+//            manager = viewModel.wifiManager,
+//            channel = viewModel.channel,
+//            viewModel = viewModel
+//        )
+//        intentFilter = IntentFilter().apply {
+//            addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION)
+//            addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION)
+//            // Add other actions if necessary
+//        }
+//        intentFilter = IntentFilter().apply {
+//            addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION)
+//            addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION)
+//            addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION)
+//            addAction(WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION)
+//        }
+
+
+//        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+//            val channel = NotificationChannel(CHANNEL_ID, channelName, importance).apply {
+//                description = channelDescription
+//            }
+//            // Register the channel with the system
+//            val notificationManager =
+//                getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+//            notificationManager.createNotificationChannel(channel)
+//        }
+
 
 
 //        // Request necessary permissions
@@ -122,62 +217,118 @@ class MainActivity : ComponentActivity() {
 //                }
 //            }
 //        }
-        val viewModel = ViewModelProvider(
-            this,
-            HotspotViewModelFactory(application, dataStore)
-        ).get(HotspotViewModel::class.java)
+//        val viewModel = ViewModelProvider(
+//            this,
+//            HotspotViewModelFactory(application, dataStore,vpnRepository)
+//        ).get(HotspotViewModel::class.java)
+        // Start VPN service with user consent
+        val vpnIntent = VpnService.prepare(this)
+        if (vpnIntent != null) {
+            startActivityForResult(vpnIntent, VPN_REQUEST_CODE)
+        } else {
+            // VPN permissions already granted
+            vpnRepository.startVpn()
+        }
+
+
 
         setContent {
-            val isDarkTheme by viewModel.isDarkTheme.collectAsState()
+            val isDarkTheme by hotspotViewModel.isDarkTheme.collectAsState()
             WiFiP2PHotspotTheme(useDarkTheme = isDarkTheme) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    WiFiP2PHotspotApp(viewModel = viewModel)
+                    val context = LocalContext.current
+                    var showAlert by remember { mutableStateOf(false) }
+                    // Set up NavHost
+                    WiFiP2PHotspotApp(
+                        hotspotViewModel = hotspotViewModel,
+                        vpnViewModel = vpnViewModel
+                    )
+
+//                    // Check if notifications are enabled
+//                    LaunchedEffect(key1 = true) {
+//                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+//                            if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) {
+//                                // Notifications are disabled, show alert
+//                                showNotificationSettingsAlert.value = true
+//                            } else {
+//                                // Notifications are enabled, request notification permission
+//                                requestPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS
+//                                )
+//                            }
+//                        } else {
+//                            // For devices below Android 13, no runtime permission required
+//                        }
+//                    }
+
                 }
             }
         }
     }
 
-//    // In your Application class or MainActivity
-//    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-//        val name = "Data Usage Alerts"
-//        val descriptionText = "Notifications for data usage thresholds"
-//        val importance = NotificationManager.IMPORTANCE_HIGH
-//        val channel = NotificationChannel("data_usage_channel", name, importance).apply {
-//            description = descriptionText
+//    private fun createNotificationChannel() {
+//        // Notification channels are only available in Android 8.0 (API level 26) and above
+//        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+//            val name = "Device Connection Notifications"
+//            val descriptionText = "Notifications related to device connections and VPN status."
+//            val importance = NotificationManager.IMPORTANCE_DEFAULT
+//            val channel = NotificationChannel("device_connection_channel", name, importance).apply {
+//                description = descriptionText
+//            }
+//
+//            // Register the channel with the system
+//            val notificationManager: NotificationManager =
+//                getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+//            notificationManager.createNotificationChannel(channel)
 //        }
-//        val notificationManager: NotificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-//        notificationManager.createNotificationChannel(channel)
 //    }
 
-    private fun startProxyService() {
-        val intent = Intent(this, ProxyService::class.java)
-        startService(intent)
-    }
-
-    private fun stopProxyService() {
-        val intent = Intent(this, ProxyService::class.java)
-        stopService(intent)
-    }
+//    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+//        super.onActivityResult(requestCode, resultCode, data)
+//        if (requestCode == VPN_REQUEST_CODE && resultCode == Activity.RESULT_OK) {
+//            vpnRepository.startVpn()
+//        }
+//    }
+//    private fun startProxyService() {
+//        val intent = Intent(this, ProxyService::class.java)
+//        startService(intent)
+//    }
+//
+//    private fun stopProxyService() {
+//        val intent = Intent(this, ProxyService::class.java)
+//        stopService(intent)
+//    }
 
     override fun onDestroy() {
         super.onDestroy()
         // Ensure services are stopped
+    }
+//    override fun onResume() {
+//        super.onResume()
+//        // Usage of receiver
+//        registerReceiver(receiver, IntentFilter)
+//    }
+
+    override fun onPause() {
+        super.onPause()
+        // Unregister receiver
+        unregisterReceiver(receiver)
     }
 
     override fun onResume() {
         super.onResume()
         registerReceiver(receiver, intentFilter)
     }
-
-    override fun onPause() {
-        super.onPause()
-        unregisterReceiver(receiver)
-    }
+//
+//    override fun onPause() {
+//        super.onPause()
+//        unregisterReceiver(receiver)
+//    }
 
 }
+
 
 //    private fun allPermissionsGranted() = REQUIRED_PERMISSIONS.all {
 //        ContextCompat.checkSelfPermission(
@@ -286,3 +437,4 @@ class MainActivity : ComponentActivity() {
 //        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
 //    }
 //}
+

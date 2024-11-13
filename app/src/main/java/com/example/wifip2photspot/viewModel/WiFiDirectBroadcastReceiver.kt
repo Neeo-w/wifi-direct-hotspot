@@ -1,12 +1,14 @@
 // WifiDirectBroadcastReceiver.kt
-package com.example.wifip2photspot
+package com.example.wifip2photspot.viewModel
 
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.net.NetworkInfo
 import android.net.wifi.p2p.WifiP2pManager
-import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class WifiDirectBroadcastReceiver(
     private val manager: WifiP2pManager,
@@ -34,12 +36,24 @@ class WifiDirectBroadcastReceiver(
                     manager.requestConnectionInfo(channel) { info ->
                         if (info.groupFormed && info.isGroupOwner) {
                             viewModel.updateLog("Group Owner: ${info.groupOwnerAddress.hostAddress}")
+                            // Inform ViewModel that the device is now the Group Owner
+                            CoroutineScope(Dispatchers.Main).launch {
+                                viewModel.onGroupOwnerChanged(true)
+                            }
+                        } else {
+                            viewModel.updateLog("Connected as a client.")
+                            // Inform ViewModel that the device is a client
+                            CoroutineScope(Dispatchers.Main).launch {
+                                viewModel.onGroupOwnerChanged(false)
+                            }
                         }
+
                         // Request group info to get connected devices
                         manager.requestGroupInfo(channel) { group ->
                             if (group != null) {
                                 val deviceList = group.clientList
                                 viewModel.onDevicesChanged(deviceList)
+                                viewModel.updateLog("Connected Devices: ${deviceList.size}")
                             }
                         }
                     }
@@ -47,10 +61,20 @@ class WifiDirectBroadcastReceiver(
                     // Disconnected from a P2P network
                     viewModel.onDevicesChanged(emptyList())
                     viewModel.updateLog("Disconnected from group.")
+                    // Inform ViewModel to handle disconnection
+                    CoroutineScope(Dispatchers.Main).launch {
+                        viewModel.onDisconnected()
+                    }
                 }
             }
 
             // Handle other actions if necessary
+            WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION -> {
+                // Optionally handle changes to this device's Wi-Fi state
+                // For example, update device details in the UI
+                // Not essential for VPN functionality
+            }
         }
     }
 }
+
