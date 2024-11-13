@@ -1,0 +1,14 @@
+private fun createSSLSocket(serverAddress: String, serverPort: Int): Socket? {
+    return try {
+        val sslSocketFactory = createPinnedSSLSocketFactory()
+            ?: throw IOException("Failed to create pinned SSLSocketFactory")
+        val sslSocket = sslSocketFactory.createSocket() as Socket
+        sslSocket.connect(InetSocketAddress(serverAddress, serverPort), 10000) // 10-second timeout
+        sslSocket.startHandshake()
+        Timber.d("SSL handshake completed with proxy server")
+        sslSocket
+    } catch (e: Exception) {
+        Timber.e(e, "Failed to create SSL socket")
+        null
+    }
+}
