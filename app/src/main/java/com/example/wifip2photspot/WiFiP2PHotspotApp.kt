@@ -44,20 +44,23 @@ import com.example.wifip2photspot.ui.screen.MainScreen
 @Composable
 fun WiFiP2PHotspotApp(viewModel: HotspotViewModel) {
     val navController = rememberNavController()
-
     WiFiP2PHotspotNavHost(navController = navController, viewModel = viewModel)
+
+
 }
 
 @Composable
 fun WiFiP2PHotspotNavHost(navController: NavHostController, viewModel: HotspotViewModel) {
     NavHost(navController = navController, startDestination = "main_screen") {
         composable("main_screen") {
-            MainScreen(navController = navController, viewModel = viewModel)
+            MainScreen(navController = navController, viewModel = viewModel, onHelpClick = { navController.navigate("help") })
         }
         composable("settings_screen") {
             SettingsScreen(navController = navController, viewModel = viewModel)
         }
-        // Add other destinations if needed
+        composable("help") {
+            HelpScreen(onBack = { navController.popBackStack() })
+        }
     }
 }
 //

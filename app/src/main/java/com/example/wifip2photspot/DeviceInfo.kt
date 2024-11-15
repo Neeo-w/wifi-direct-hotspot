@@ -9,7 +9,11 @@ data class DeviceInfo(
     val alias: String? = null,
     val connectionTime: Long = System.currentTimeMillis(),
     val ipAddress: String? = null,
-    val isBlocked: Boolean = false
+    val isBlocked: Boolean = false,
+//    val connectionTime: Long,
+    var disconnectionTime: Long = 0L,
+    var dataSent: Long = 0L,
+    var dataReceived: Long = 0L
 )
 
 
