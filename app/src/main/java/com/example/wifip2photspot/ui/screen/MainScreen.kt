@@ -36,6 +36,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.wifip2photspot.BatteryStatusSection
+import com.example.wifip2photspot.ClientMonitoringSection
+import com.example.wifip2photspot.ConnectionInfoSection
 import com.example.wifip2photspot.ConnectionStatusBar
 import com.example.wifip2photspot.HotspotControlSection
 import com.example.wifip2photspot.HotspotViewModel
@@ -53,11 +55,15 @@ import com.example.wifip2photspot.ui.SettingsScreen
 
 @SuppressLint("StateFlowValueCalledInComposition")
 @Composable
-fun MainScreen(navController: NavHostController, viewModel: HotspotViewModel) {
+fun MainScreen(navController: NavHostController, viewModel: HotspotViewModel, onHelpClick: () -> Unit) {
     val context = LocalContext.current
     val ssid by viewModel.ssid.collectAsState()
     val password by viewModel.password.collectAsState()
     val selectedBand by viewModel.selectedBand.collectAsState()
+//    val socksPort by viewModel.socksPort.collectAsState()
+//
+//    val socksPortInput by viewModel.socksPortInput.collectAsState()
+//    val onSocksPortChange by viewModel.onSocksPortChange.collectAsState()
     val isHotspotEnabled by viewModel.isHotspotEnabled.collectAsState()
     val isProcessing by viewModel.isProcessing.collectAsState()
     val uploadSpeed by viewModel.uploadSpeed.collectAsState()
@@ -88,8 +94,14 @@ fun MainScreen(navController: NavHostController, viewModel: HotspotViewModel) {
     val downloadSpeedEntries by viewModel.downloadSpeedEntries.collectAsState()
     val batteryLevel by viewModel.batteryLevel.collectAsState()
 
-    // Proxy server state
-    val proxyPort by viewModel.proxyPort.collectAsState()
+    // Collect the server IP address and socks port
+    val serverIpAddress by viewModel.serverIpAddress.collectAsState()
+    val socksPort by viewModel.socksPort.collectAsState()
+
+    val connectedClientsInfo by viewModel.connectedClients.collectAsState()
+//    val scaffoldState = rememberScaffoldState()
+
+
 
     // Update ViewModel when text changes
     LaunchedEffect(ssidFieldState.text) {
@@ -128,11 +140,14 @@ fun MainScreen(navController: NavHostController, viewModel: HotspotViewModel) {
 
     // Scaffold for overall layout
     Scaffold(
+//        scaffoldState = scaffoldState,
         topBar = {
             ImprovedHeader(
                 isHotspotEnabled = isHotspotEnabled,
                 viewModel = viewModel,
-                onSettingsClick = { navController.navigate("settings_screen") }
+                onSettingsClick = { navController.navigate("settings_screen") },
+                onHelpClick = onHelpClick
+
             )
         },
         content = { paddingValues ->
@@ -152,13 +167,28 @@ fun MainScreen(navController: NavHostController, viewModel: HotspotViewModel) {
                 item {
                     Spacer(modifier = Modifier.height(16.dp))
                 }
-
-                if (connectedDeviceInfos.isNotEmpty()) {
+                // Inside your LazyColumn or Column
+                if (isHotspotEnabled) {
                     item {
-                        SpeedGraphSection(
-                            uploadSpeeds = uploadSpeedEntries,
-                            downloadSpeeds = downloadSpeedEntries
+                        ConnectionInfoSection(
+                            serverIpAddress = serverIpAddress,
+                            socksPort = socksPort
                         )
+                    }
+                }
+
+//                if (connectedDeviceInfos.isNotEmpty()) {
+//                    item {
+//                        SpeedGraphSection(
+//                            uploadSpeeds = uploadSpeedEntries,
+//                            downloadSpeeds = downloadSpeedEntries
+//                        )
+//                    }
+//                }
+                // Inside your LazyColumn or Column
+                if (connectedClientsInfo.isNotEmpty()) {
+                    item {
+                        ClientMonitoringSection(clients = connectedClientsInfo)
                     }
                 }
 
@@ -174,8 +204,12 @@ fun MainScreen(navController: NavHostController, viewModel: HotspotViewModel) {
                             onPasswordChange = { newValue ->
                                 passwordFieldState = newValue
                             },
-                            isHotspotEnabled = isHotspotEnabled
-                        )
+                            socksPortInput = socksPort,
+                            onSocksPortChange = { viewModel.updateSocksPort(it) },
+                            isHotspotEnabled = isHotspotEnabled,
+
+
+                            )
                     }
                 } else {
                     item {
@@ -203,12 +237,16 @@ fun MainScreen(navController: NavHostController, viewModel: HotspotViewModel) {
                             ssidInput = ssidFieldState.text,
                             passwordInput = passwordFieldState.text,
                             selectedBand = selectedBand,
+                            socksPortInput = socksPort,
                             onStartTapped = {
                                 viewModel.onButtonStartTapped(
                                     ssidInput = ssidFieldState.text.ifBlank { "TetherGuard" },
                                     passwordInput = passwordFieldState.text.ifBlank { "00000000" },
+                                    socksPortInput = if (socksPort.isBlank()) "1080" else socksPort,
                                     selectedBand = selectedBand,
-                                )
+
+
+                                    )
                             },
                             onStopTapped = {
                                 viewModel.onButtonStopTapped()

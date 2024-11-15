@@ -15,6 +15,7 @@ import android.net.Uri
 import android.net.wifi.WifiManager
 import android.net.wifi.p2p.WifiP2pConfig
 import android.net.wifi.p2p.WifiP2pDevice
+import android.net.wifi.p2p.WifiP2pInfo
 import android.net.wifi.p2p.WifiP2pManager
 import android.os.BatteryManager
 import android.os.Build
@@ -31,20 +32,18 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
+import com.example.wifip2photspot.Proxy.SocksProxyServer
 import com.github.mikephil.charting.data.Entry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import kotlin.time.Duration
-import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.IOException
-import java.time.LocalDate
 import java.util.concurrent.TimeUnit
-import kotlin.time.Duration.Companion.seconds
+import com.example.wifip2photspot.ClientInfo
 
 @RequiresApi(Build.VERSION_CODES.Q)
 class HotspotViewModel(application: Application, private val dataStore: DataStore<Preferences>) :
@@ -72,6 +71,7 @@ class HotspotViewModel(application: Application, private val dataStore: DataStor
 
         // Other preference keys...
     }
+
     // Enum for themes
     enum class AppTheme {
         DEFAULT, DARK, AMOLED, CUSTOM
@@ -121,12 +121,11 @@ class HotspotViewModel(application: Application, private val dataStore: DataStor
     val isDarkTheme: StateFlow<Boolean> = _isDarkTheme.asStateFlow()
 
 
-
     // ----- Log Entries -----
     private val _logEntries = MutableStateFlow<List<String>>(emptyList())
     val logEntries: StateFlow<List<String>> = _logEntries.asStateFlow()
 
-//    // ----- UI Events -----
+    //    // ----- UI Events -----
     private val _eventFlow = MutableSharedFlow<UiEvent>()
     val eventFlow: SharedFlow<UiEvent> = _eventFlow.asSharedFlow()
 
@@ -135,6 +134,7 @@ class HotspotViewModel(application: Application, private val dataStore: DataStor
     val connectedDevices: StateFlow<List<WifiP2pDevice>> = _connectedDevices.asStateFlow()
     private val _connectedDeviceInfos = MutableStateFlow<List<DeviceInfo>>(emptyList())
     val connectedDeviceInfos: StateFlow<List<DeviceInfo>> = _connectedDeviceInfos.asStateFlow()
+
     //visible password
     private var passwordVisible by mutableStateOf(false)
 
@@ -152,7 +152,6 @@ class HotspotViewModel(application: Application, private val dataStore: DataStor
 
     private val _proxyPort = MutableStateFlow(8080)
     val proxyPort: StateFlow<Int> = _proxyPort.asStateFlow()
-
 
 
     // StateFlows to hold the lists
@@ -196,7 +195,8 @@ class HotspotViewModel(application: Application, private val dataStore: DataStor
     val notificationSoundEnabled: StateFlow<Boolean> = _notificationSoundEnabled.asStateFlow()
 
     private val _notificationVibrationEnabled = MutableStateFlow(true)
-    val notificationVibrationEnabled: StateFlow<Boolean> = _notificationVibrationEnabled.asStateFlow()
+    val notificationVibrationEnabled: StateFlow<Boolean> =
+        _notificationVibrationEnabled.asStateFlow()
 
     //battery level
     private val _batteryLevel = MutableStateFlow(100)
@@ -238,61 +238,29 @@ class HotspotViewModel(application: Application, private val dataStore: DataStor
 
     // Wi-Fi Lock Variables
     private var wifiLock: WifiManager.WifiLock? = null
+
     // Wi-Fi Lock Enabled StateFlow
     private val _wifiLockEnabled = MutableStateFlow(false)
     val wifiLockEnabled: StateFlow<Boolean> = _wifiLockEnabled.asStateFlow()
 
 
+    private val _socksPort = MutableStateFlow("1080")
+    val socksPort: StateFlow<String> = _socksPort
+    private var socksProxyServer: SocksProxyServer? = null
 
-//    private var proxyServer: proxyServer? = null
-//
-//    // Start Proxy Server
-//    fun startProxyServer() {
-//        if (_isProxyRunning.value) {
-//            updateLog("Proxy server is already running.")
-//            return
-//        }
-//
-//        proxyServer = proxyServer(_proxyPort.value)
-//        try {
-//            proxyServer?.start()
-//            _isProxyRunning.value = true
-//            updateLog("Proxy server started on port ${_proxyPort.value}")
-//        } catch (e: IOException) {
-//            updateLog("Failed to start proxy server: ${e.message}")
-//        }
-//    }
-
-    // Stop Proxy Server
-//    fun stopProxyServer() {
-//        if (!_isProxyRunning.value) {
-//            updateLog("Proxy server is not running.")
-//            return
-//        }
-//
-//        proxyServer?.stop()
-//        proxyServer = null
-//        _isProxyRunning.value = false
-//        updateLog("Proxy server stopped.")
-//    }
-
-    // Update Proxy Port
-    fun updateProxyPort(port: Int) {
-        _proxyPort.value = port
+    fun updateSocksPort(newPort: String) {
+        _socksPort.value = newPort
     }
 
-//    fun startVpn(context: Context) {
-//        val intent = Intent(context, MyVpnService::class.java)
-//        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-//            context.startForegroundService(intent)
-//        } else {
-//            context.startService(intent)
-//        }
-//    }
+    // Create a StateFlow to hold the IP address
+    private val _serverIpAddress = MutableStateFlow("")
+    val serverIpAddress: StateFlow<String> = _serverIpAddress
+    private val _connectedClients = MutableStateFlow<List<ClientInfo>>(emptyList())
+    val connectedClients: StateFlow<List<ClientInfo>> = _connectedClients
 
 
+    /////****************************************************************************************////////////////////////////////
     init {
-
         // ----- Load SSID and Password from DataStore -----
         viewModelScope.launch {
             dataStore.data
@@ -317,7 +285,6 @@ class HotspotViewModel(application: Application, private val dataStore: DataStor
             }
         }
         // ----- Start Monitoring Network Speeds -----
-// In the coroutine where you update uploadSpeed and downloadSpeed
         viewModelScope.launch {
             var time = 0f
             while (true) {
@@ -366,21 +333,14 @@ class HotspotViewModel(application: Application, private val dataStore: DataStor
                 _deviceAliases.value = Json.decodeFromString(aliasesJson)
             }
         }
-//         Load historical data usage from DataStore
-//        viewModelScope.launch {
-//            dataStore.data.collect { preferences ->
-//                val json = preferences[DATA_USAGE_KEY] ?: "[]"
-//                _historicalDataUsage.value = Json.decodeFromString(json)
-//            }
-//        }
+        // Periodically update clients' data usage
+        viewModelScope.launch {
+            while (true) {
+                delay(1000) // Update every second
+                _connectedClients.value = _connectedClients.value.toList()
+            }
+        }
         monitorNetworkSpeeds()
-//
-//        viewModelScope.launch {
-//            dataStore.data.collect { preferences ->
-//                _dataUsageThreshold.value = preferences[DATA_USAGE_THRESHOLD_KEY] ?: 0L
-//            }
-//        }
-
     }
 
     @Suppress("EXPERIMENTAL_API_USAGE")
@@ -467,6 +427,19 @@ class HotspotViewModel(application: Application, private val dataStore: DataStor
 
 
     // ----- Function to Set Wi-Fi P2P Enabled State -----
+    fun updateConnectionInfo(wifiP2pInfo: WifiP2pInfo) {
+        if (wifiP2pInfo.groupFormed && wifiP2pInfo.isGroupOwner) {
+            _serverIpAddress.value = wifiP2pInfo.groupOwnerAddress.hostAddress
+        }
+    }
+
+    // Add this function to retrieve the IP address
+    private fun getGroupOwnerIpAddress(): String {
+        // The Group Owner's IP is typically 192.168.49.1
+        // Alternatively, retrieve it from the WifiP2pInfo
+        return "192.168.49.1"
+    }
+
     fun setWifiP2pEnabled(enabled: Boolean) {
         _isWifiP2pEnabled.value = enabled
         updateLog("Wi-Fi P2P Enabled: $enabled")
@@ -505,7 +478,8 @@ class HotspotViewModel(application: Application, private val dataStore: DataStor
     fun onButtonStartTapped(
         ssidInput: String,
         passwordInput: String,
-        selectedBand: String
+        selectedBand: String,
+        socksPortInput: String
     ) {
         onButtonStopTapped()
         viewModelScope.launch {
@@ -547,6 +521,13 @@ class HotspotViewModel(application: Application, private val dataStore: DataStor
                 else -> WifiP2pConfig.GROUP_OWNER_BAND_AUTO
             }
 
+            // Validate SOCKS Proxy Port
+            val port = socksPortInput.toIntOrNull()
+            if (port == null || port !in 1024..65535) {
+                _eventFlow.emit(UiEvent.ShowToast("Invalid SOCKS Proxy Port"))
+                return@launch
+            }
+
             val config = WifiP2pConfig.Builder()
                 .setNetworkName(ssid)
                 .setPassphrase(passwordTrimmed)
@@ -573,6 +554,24 @@ class HotspotViewModel(application: Application, private val dataStore: DataStor
                             _isProcessing.value = false
                             _eventFlow.emit(UiEvent.ShowToast("Hotspot started successfully."))
 //                            _eventFlow.emit(UiEvent.StartProxyService)
+                            // Start the SOCKS Proxy Server with callbacks
+                            val port = socksPortInput.toIntOrNull() ?: 1080
+                            socksProxyServer = SocksProxyServer(port,
+                                onClientConnected = { clientInfo ->
+                                    viewModelScope.launch {
+                                        _connectedClients.value += clientInfo
+                                        updateLog("Client connected: ${clientInfo.ipAddress}")
+                                    }
+                                },
+                                onClientDisconnected = { clientInfo ->
+                                    viewModelScope.launch {
+                                        _connectedClients.value -= clientInfo
+                                        updateLog("Client disconnected: ${clientInfo.ipAddress}")
+                                    }
+                                })
+                            socksProxyServer?.start()
+                            updateLog("SOCKS Proxy Server started on port $port")
+
                             acquireWifiLock()
 
                             showHotspotStatusNotification()
@@ -583,6 +582,7 @@ class HotspotViewModel(application: Application, private val dataStore: DataStor
 
                         }
                     }
+
 
                     override fun onFailure(reason: Int) {
                         val reasonStr = when (reason) {
@@ -605,6 +605,8 @@ class HotspotViewModel(application: Application, private val dataStore: DataStor
                     _isHotspotEnabled.value = false
                     _isProcessing.value = false
                     _eventFlow.emit(UiEvent.ShowToast("Exception occurred: ${e.message}"))
+                    updateLog("Failed to start SOCKS Proxy Server: ${e.message}")
+                    _eventFlow.emit(UiEvent.ShowToast("Failed to start SOCKS Proxy Server"))
                 }
             }
         }
@@ -632,12 +634,18 @@ class HotspotViewModel(application: Application, private val dataStore: DataStor
                             _isProcessing.value = false
                             _eventFlow.emit(UiEvent.ShowToast("Hotspot stopped successfully."))
 //                            _eventFlow.emit(UiEvent.StopProxyService)
-                            releaseWifiLock()
+
+                            // Stop the SOCKS Proxy Server
+                            socksProxyServer?.stop()
+                            socksProxyServer = null
+                            updateLog("SOCKS Proxy Server stopped")
+
+                            // Clear the server IP address
+                            _serverIpAddress.value = ""
 
                             removeHotspotStatusNotification()
-                            // Stop monitoring
-                            // Cancel idle monitoring coroutine if necessary
                             _remainingIdleTime.value = 0L
+
                         }
 //                        saveSessionDataUsage()
                     }
@@ -675,10 +683,14 @@ class HotspotViewModel(application: Application, private val dataStore: DataStor
 
     //*****************************************************Fine****************************************
     fun startNetworkMonitoring() {
-        val connectivityManager = getApplication<Application>().getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val connectivityManager =
+            getApplication<Application>().getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
         val networkCallback = object : ConnectivityManager.NetworkCallback() {
-            override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+            override fun onCapabilitiesChanged(
+                network: Network,
+                networkCapabilities: NetworkCapabilities
+            ) {
                 val linkDownstreamBandwidthKbps = networkCapabilities.linkDownstreamBandwidthKbps
                 val linkUpstreamBandwidthKbps = networkCapabilities.linkUpstreamBandwidthKbps
 
@@ -700,7 +712,8 @@ class HotspotViewModel(application: Application, private val dataStore: DataStor
     }
 
     fun startBatteryMonitoring() {
-        val batteryManager = getApplication<Application>().getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+        val batteryManager =
+            getApplication<Application>().getSystemService(Context.BATTERY_SERVICE) as BatteryManager
         val intentFilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
         val batteryStatus = getApplication<Application>().registerReceiver(null, intentFilter)
         batteryStatus?.let {
@@ -757,8 +770,12 @@ class HotspotViewModel(application: Application, private val dataStore: DataStor
 
     fun acquireWifiLock() {
         if (_wifiLockEnabled.value) {
-            val wifiManager = getApplication<Application>().getSystemService(Context.WIFI_SERVICE) as WifiManager
-            wifiLock = wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "WiFiP2PHotspotLock")
+            val wifiManager =
+                getApplication<Application>().getSystemService(Context.WIFI_SERVICE) as WifiManager
+            wifiLock = wifiManager.createWifiLock(
+                WifiManager.WIFI_MODE_FULL_HIGH_PERF,
+                "WiFiP2PHotspotLock"
+            )
             wifiLock?.acquire()
         }
     }

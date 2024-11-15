@@ -1,6 +1,8 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
+//    id "kotlin-serialization' // Make sure this is included
+
 
 }
 
@@ -46,6 +48,8 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "META-INF/INDEX.LIST"
+            excludes += "META-INF/io.netty.versions.properties"
         }
     }
 }
@@ -61,6 +65,7 @@ dependencies {
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.compose.material)
+    implementation(libs.play.services.dtdi)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -84,19 +89,30 @@ dependencies {
     implementation ("androidx.work:work-runtime-ktx:2.7.1")
 
 
+
+
     implementation ("androidx.navigation:navigation-compose:2.8.3")
-
-
-
-//    implementation(libs.charts)
-
-
 
     implementation (libs.kotlinx.serialization.json)
 //    implementation ("com.github.bumptech.glide:glide:4.15.1")
 
     implementation(libs.timber)
 //    implementation (libs.mpandroidchart)
+    //proxy
+    // Netty dependencies
+//    implementation ("io.netty:netty-all:4.1.95.Final")
+//    implementation ("io.netty:netty-all:4.1.68.Final")
+    // Netty dependencies
+    implementation ("io.netty:netty-handler:4.1.68.Final")
+    implementation ("io.netty:netty-codec-socks:4.1.68.Final")
+    implementation ("io.netty:netty-transport:4.1.68.Final")
+    implementation ("io.netty:netty-transport-native-epoll:4.1.68.Final")
+
+
+
+//    implementation(libs.charts)
+
+
 
 
 

@@ -26,6 +26,8 @@ fun InputFieldsSection(
     passwordInput: TextFieldValue,
     onPasswordChange: (TextFieldValue) -> Unit,
     isHotspotEnabled: Boolean,
+    socksPortInput: String,
+    onSocksPortChange: (String) -> Unit,
 //    proxyPort: Int,
 //    onProxyPortChange: (Int) -> Unit,
 //    selectedBand: String,
@@ -34,6 +36,11 @@ fun InputFieldsSection(
 ) {
     // State for password visibility
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
+    // Compute error states
+//    val ssidErrorState = ssidInput.isEmpty()
+//    val passwordErrorState = passwordInput.length !in 8..63
+    val socksPortErrorState = socksPortInput.isEmpty() || socksPortInput.toIntOrNull() == null
+
 
     // Compute error states
     val ssidErrorState = ssidInput.text.isEmpty()
@@ -131,28 +138,41 @@ fun InputFieldsSection(
                     }
                 )
 
-                // Proxy Port Input Field
-
-//                // Proxy Port Field
-//                if (!isHotspotEnabled) {
-//                    Spacer(modifier = Modifier.height(8.dp))
-//                    Row(verticalAlignment = Alignment.CenterVertically) {
-//                        Text("Proxy Port:", style = MaterialTheme.typography.bodyMedium)
-//                        Spacer(modifier = Modifier.width(8.dp))
-//                        OutlinedTextField(
-//                            value = proxyPort.toString(),
-//                            onValueChange = { newPort ->
-//                                newPort.toIntOrNull()?.let {
-//                                    onProxyPortChange(it)
-//                                }
-//                            },
-//                            label = { Text("Port") },
-//                            singleLine = true,
-//                            modifier = Modifier.width(100.dp)
-//                        )
-//                    }
+                // SOCKS Proxy Port Input Field
+                OutlinedTextField(
+                    value = socksPortInput,
+                    onValueChange = onSocksPortChange,
+                    label = { Text("SOCKS Proxy Port") },
+                    placeholder = { Text("1080") },
+                    leadingIcon = {
+                        Icon(
+                            Icons.Default.Dns,
+                            contentDescription = "Port Icon"
+                        )
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp)
+                        .alpha(if (!isHotspotEnabled) 1f else ContentAlpha.disabled),
+                    enabled = !isHotspotEnabled,
+                    singleLine = true,
+                    isError = socksPortErrorState,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number
+                    ),
+                    supportingText = {
+                        if (socksPortErrorState) {
+                            Text(
+                                text = "Invalid port number",
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                )
             }
         }
+    }
+}
 
 //            // Band Selection Section
 //            BandSelection(
@@ -160,9 +180,8 @@ fun InputFieldsSection(
 //                onBandSelected = onBandSelected,
 //                bands = bands,
 //                isHotspotEnabled = isHotspotEnabled
-//            )
-    }
-}
+//            ) }
+
 
 //
 //@Composable

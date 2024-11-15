@@ -25,8 +25,9 @@ fun HotspotControlSection(
     ssidInput: String,
     passwordInput: String,
     selectedBand: String,
+    socksPortInput: String,
     onStartTapped: () -> Unit,
-    onStopTapped: () -> Unit,
+    onStopTapped: () -> Unit
     ) {
     val context = LocalContext.current
 
@@ -45,11 +46,11 @@ fun HotspotControlSection(
             if (isProcessing) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(20.dp),
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    strokeWidth = 2.dp
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.onPrimary
                 )
             } else {
-                Text("Start Hotspot")
+                Text("Start Tethering")
             }
         }
 
@@ -78,11 +79,11 @@ fun HotspotControlSection(
             if (isProcessing) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(20.dp),
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    strokeWidth = 2.dp
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.onPrimary
                 )
             } else {
-                Text("Stop Hotspot")
+                Text("Stop Tethering")
             }
         }
     }
