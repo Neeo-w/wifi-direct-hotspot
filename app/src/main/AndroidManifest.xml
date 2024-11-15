@@ -16,8 +16,13 @@
     <!-- Wi-Fi P2P Permissions -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <uses-permission android:name="android.permission.READ_NETWORK_USAGE_HISTORY"
+        tools:ignore="ProtectedPermissions" />
+
     <!-- Android 13+ Permission -->
     <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+
     <!-- Wi-Fi P2P permissions -->
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -47,14 +52,14 @@
             </intent-filter>
         </activity>
 
-<!--        <service-->
-<!--            android:name=".Proxy.ProxyService"-->
-<!--            android:permission="android.permission.BIND_VPN_SERVICE"-->
-<!--            android:exported="false">-->
-<!--            <intent-filter>-->
-<!--                <action android:name="android.net.VpnService" />-->
-<!--            </intent-filter>-->
-<!--        </service>-->
+                <service
+                    android:name=".Proxy.ProxyService"
+                    android:permission="android.permission.BIND_VPN_SERVICE"
+                    android:exported="false">
+                    <intent-filter>
+                        <action android:name="android.net.VpnService" />
+                    </intent-filter>
+                </service>
 
     </application>
 </manifest>

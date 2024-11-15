@@ -1,325 +1,313 @@
 // WiFiP2PHotspotApp.kt
 package com.example.wifip2photspot
 
-import android.Manifest
+
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.location.LocationManager
 import android.net.Uri
-import android.net.VpnService
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
-import com.example.wifip2photspot.ui.theme.ThemeToggle
-
-
+import androidx.compose.material3.Button
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.core.app.ActivityCompat.startActivityForResult
-import com.example.wifip2photspot.Proxy.DataUsageSection
-import com.example.wifip2photspot.Proxy.ProxyControlSection
-import com.example.wifip2photspot.Proxy.ProxyInstructionsSection
-import com.example.wifip2photspot.Proxy.ProxyLimitationsSection
-import com.example.wifip2photspot.Proxy.ProxyService
-import com.example.wifip2photspot.Proxy.ProxyStatusSection
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.unit.dp
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+//import com.example.wifip2photspot.Proxy.ProxyService
+import com.example.wifip2photspot.ui.IdleCountdownDisplay
+import com.example.wifip2photspot.ui.SettingsScreen
+import com.example.wifip2photspot.ui.screen.MainScreen
 
-
-@SuppressLint("StateFlowValueCalledInComposition")
 @Composable
-fun WiFiP2PHotspotApp(
-    viewModel: HotspotViewModel, activity: Activity, isDarkTheme: Boolean,
-    onThemeChange: (Boolean) -> Unit
-) {
+fun WiFiP2PHotspotApp(viewModel: HotspotViewModel) {
+    val navController = rememberNavController()
 
-    val context = LocalContext.current
-
-    // Collect state from ViewModel
-    val ssid by viewModel.ssid.collectAsState()
-    val password by viewModel.password.collectAsState()
-    val selectedBand by viewModel.selectedBand.collectAsState()
-    val isHotspotEnabled by viewModel.isHotspotEnabled.collectAsState()
-    val isProcessing by viewModel.isProcessing.collectAsState()
-    val uploadSpeed by viewModel.uploadSpeed.collectAsState()
-    val downloadSpeed by viewModel.downloadSpeed.collectAsState()
-    val connectedDevices by viewModel.connectedDevices.collectAsState()
-    val logEntries by viewModel.logEntries.collectAsState()
-    var isDarkTheme by rememberSaveable { mutableStateOf(false) }
-    // Local state for TextFieldValue
-    var ssidFieldState by rememberSaveable(stateSaver = TextFieldValue.Saver) {
-        mutableStateOf(TextFieldValue(ssid))
-    }
-    var passwordFieldState by rememberSaveable(stateSaver = TextFieldValue.Saver) {
-        mutableStateOf(TextFieldValue(password))
-    }
-
-    // Dialog State
-    var showServiceEnableDialog by remember { mutableStateOf(false) }
-    var showSettingsDialog by remember { mutableStateOf(false) }
-
-
-    val connectedDeviceInfos by viewModel.connectedDeviceInfos.collectAsState()
-    // Collect the blocked devices from the ViewModel
-    val blockedDeviceInfos by viewModel.blockedDeviceInfos.collectAsState()
-
-    val (sessionRxBytes, sessionTxBytes) = viewModel.getSessionDataUsage()
-    val uploadSpeedEntries by viewModel.uploadSpeedEntries.collectAsState()
-    val downloadSpeedEntries by viewModel.downloadSpeedEntries.collectAsState()
-
-
-
-
-//// Proxy server state
-//    val isProxyRunning by viewModel.isProxyRunning.collectAsState()
-    val proxyPort by viewModel.proxyPort.collectAsState()
-//    val proxyIP = "192.168.49.1" // Typically the group owner's IP in Wi-Fi Direct
-//
-
-    // Update ViewModel when text changes
-    LaunchedEffect(ssidFieldState.text) {
-        viewModel.updateSSID(ssidFieldState.text)
-    }
-    LaunchedEffect(passwordFieldState.text) {
-        viewModel.updatePassword(passwordFieldState.text)
-    }
-
-    LaunchedEffect(connectedDeviceInfos) {
-        Log.d(
-            "WiFiP2PHotspotApp",
-            "ConnectedDeviceInfos updated: ${connectedDeviceInfos.size} devices"
-        )
-    }
-    // Handle UI Events
-    LaunchedEffect(key1 = true) {
-        viewModel.eventFlow.collect { event ->
-            when (event) {
-                is HotspotViewModel.UiEvent.ShowToast -> {
-                    Toast.makeText(context, event.message, Toast.LENGTH_SHORT).show()
-                }
-
-                is HotspotViewModel.UiEvent.ShowSnackbar -> {
-                    // Implement Snackbar if needed
-                }
-
-                is HotspotViewModel.UiEvent.StartProxyService -> {
-                    val intent = Intent(context, ProxyService::class.java)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        context.startForegroundService(intent)
-                    } else {
-                        context.startService(intent)
-                    }
-                }
-
-                is HotspotViewModel.UiEvent.StopProxyService -> {
-                    val intent = Intent(context, ProxyService::class.java)
-                    context.stopService(intent)
-                }
-            }
-        }
-    }
-
-
-    // Scaffold for overall layout
-    Scaffold(
-        topBar = { ImprovedHeader(isHotspotEnabled = isHotspotEnabled) },
-        content = { paddingValues ->
-            LazyColumn(
-                contentPadding = paddingValues,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp)
-            ) {
-                // Theme Toggle
-                item {
-                    ThemeToggle(
-                        isDarkTheme = isDarkTheme,
-                        onToggle = onThemeChange
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-
-                // Input Fields and Band Selection
-                if (connectedDeviceInfos.isEmpty()) {
-                    item {
-                        InputFieldsSection(
-                            ssidInput = ssidFieldState,
-                            onSsidChange = { newValue ->
-                                ssidFieldState = newValue
-                            },
-                            passwordInput = passwordFieldState,
-                            onPasswordChange = { newValue ->
-                                passwordFieldState = newValue
-                            },
-                            isHotspotEnabled = isHotspotEnabled,
-                            proxyPort = proxyPort,
-                            onProxyPortChange = { newPort ->
-                                viewModel.updateProxyPort(newPort)
-                            },
-                            selectedBand = selectedBand,
-                            onBandSelected = { newBand ->
-                                viewModel.updateSelectedBand(newBand)
-                            },
-                            bands = listOf("Auto", "2.4GHz", "5GHz")
-                        )
-                    }
-
-
-                } else {
-                    item {
-                        ConnectionStatusBar(
-                            uploadSpeed = uploadSpeed,
-                            downloadSpeed = downloadSpeed,
-                            totalDownload = downloadSpeed, // Adjust if you have a separate totalDownload
-                            connectedDevicesCount = connectedDevices.size
-                        )
-                    }
-                    item {
-                        DataUsageSection(
-                            rxBytes = sessionRxBytes,
-                            txBytes = sessionTxBytes
-                        )
-                    }
-//                    item {
-//                        HistoricalDataUsageSection(historicalData = viewModel.historicalDataUsage.value)
-//                    }
-                    item {
-                        SpeedGraphSection(
-                            uploadSpeeds = uploadSpeedEntries,
-                            downloadSpeeds = downloadSpeedEntries
-                        )
-                    }
-                }
-
-                item {
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
-
-                // Hotspot Control Section
-                item {
-                    if (isWifiEnabled(context) && isLocationEnabled(context)) {
-                        HotspotControlSection(
-                            isHotspotEnabled = isHotspotEnabled,
-                            isProcessing = isProcessing,
-                            ssidInput = ssidFieldState.text,
-                            passwordInput = passwordFieldState.text,
-                            selectedBand = selectedBand,
-                            proxyPort = proxyPort,
-                            onStartTapped = {
-                                viewModel.onButtonStartTapped(
-                                    ssidInput = ssidFieldState.text.ifBlank { "TetherGuard" },
-                                    passwordInput = passwordFieldState.text.ifBlank { "00000000" },
-                                    selectedBand = selectedBand,
-                                )
-                            },
-                            onStopTapped = {
-                                viewModel.onButtonStopTapped()
-                            }
-                        )
-
-
-                    } else {
-                        showServiceEnableDialog = true
-                    }
-                }
-                item {
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
-                item {
-                    NotificationSettingsSection(
-                        notificationEnabled = viewModel.notificationEnabled.value,
-                        onNotificationEnabledChange = { viewModel.updateNotificationEnabled(it) },
-                        soundEnabled = viewModel.notificationSoundEnabled.value,
-                        onSoundEnabledChange = { viewModel.updateNotificationSoundEnabled(it) },
-                        vibrationEnabled = viewModel.notificationVibrationEnabled.value,
-                        onVibrationEnabledChange = { viewModel.updateNotificationVibrationEnabled(it) }
-                    )
-                }
-
-                if (isHotspotEnabled) {
-                    // Connected Devices Section
-                    connectedDevicesSection(
-                        devices = connectedDeviceInfos,
-                        onDeviceAliasChange = { deviceAddress, alias ->
-                            viewModel.updateDeviceAlias(deviceAddress, alias)
-                        },
-                        onBlockUnblock = { deviceAddress ->
-                            val deviceInfo =
-                                connectedDeviceInfos.find { it.device.deviceAddress == deviceAddress }
-                            if (deviceInfo != null) {
-                                if (deviceInfo.isBlocked) {
-                                    viewModel.unblockDevice(deviceAddress)
-                                } else {
-                                    viewModel.blockDevice(deviceAddress)
-                                }
-                            }
-                        },
-                        onDisconnect = { deviceAddress ->
-                            val deviceInfo =
-                                connectedDeviceInfos.find { it.device.deviceAddress == deviceAddress }
-                            if (deviceInfo != null) {
-                                viewModel.disconnectDevice(deviceInfo)
-                            }
-                        }
-                    )
-                    if(blockedDeviceInfos.isNotEmpty()) {
-                        blockedDevicesSection(
-                            devices = blockedDeviceInfos,
-                            onUnblock = { deviceAddress ->
-                                viewModel.unblockDevice(deviceAddress)
-                            }
-                        )
-                    }
-                }
-//                item {
-//                    HotspotScheduler(
-//                        onScheduleStart = { timeInMillis ->
-//                            viewModel.scheduleHotspotStart(timeInMillis)
-//                        },
-//                        onScheduleStop = { timeInMillis ->
-//                            viewModel.scheduleHotspotStop(timeInMillis)
-//                        }
-//                    )
-//                }
-
-                item {
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
-
-                // Log Section
-                item {
-                    LogSection(logEntries = logEntries)
-                }
-                item {
-                    FeedbackForm(onSubmit = { feedback ->
-                        viewModel.submitFeedback(feedback)
-                    })
-                }
-                item {
-                    ContactSupportSection(onContactSupport = {
-                        viewModel.contactSupport()
-                    })
-                }
-            }
-        }
-    )
+    WiFiP2PHotspotNavHost(navController = navController, viewModel = viewModel)
 }
 
+@Composable
+fun WiFiP2PHotspotNavHost(navController: NavHostController, viewModel: HotspotViewModel) {
+    NavHost(navController = navController, startDestination = "main_screen") {
+        composable("main_screen") {
+            MainScreen(navController = navController, viewModel = viewModel)
+        }
+        composable("settings_screen") {
+            SettingsScreen(navController = navController, viewModel = viewModel)
+        }
+        // Add other destinations if needed
+    }
+}
+//
+//@SuppressLint("StateFlowValueCalledInComposition")
+//@Composable
+//fun MainScreen(navController: NavHostController, viewModel: HotspotViewModel) {
+//    val context = LocalContext.current
+//    val ssid by viewModel.ssid.collectAsState()
+//    val password by viewModel.password.collectAsState()
+//    val selectedBand by viewModel.selectedBand.collectAsState()
+//    val isHotspotEnabled by viewModel.isHotspotEnabled.collectAsState()
+//    val isProcessing by viewModel.isProcessing.collectAsState()
+//    val uploadSpeed by viewModel.uploadSpeed.collectAsState()
+//    val downloadSpeed by viewModel.downloadSpeed.collectAsState()
+//    val connectedDevices by viewModel.connectedDevices.collectAsState()
+//    val logEntries by viewModel.logEntries.collectAsState()
+//    var isDarkTheme by rememberSaveable { mutableStateOf(false) }
+//
+//    // Local state for TextFieldValue
+//    var ssidFieldState by rememberSaveable(stateSaver = TextFieldValue.Saver) {
+//        mutableStateOf(TextFieldValue(ssid))
+//    }
+//    var passwordFieldState by rememberSaveable(stateSaver = TextFieldValue.Saver) {
+//        mutableStateOf(TextFieldValue(password))
+//    }
+//
+//    // Dialog State
+//    var showServiceEnableDialog by remember { mutableStateOf(false) }
+//    var showSettingsDialog by remember { mutableStateOf(false) }
+//
+//    val connectedDeviceInfos by viewModel.connectedDeviceInfos.collectAsState()
+//    // Collect the blocked devices from the ViewModel
+//    val blockedDeviceInfos by viewModel.blockedDeviceInfos.collectAsState()
+//
+//    val (sessionRxBytes, sessionTxBytes) = viewModel.getSessionDataUsage()
+//    val uploadSpeedEntries by viewModel.uploadSpeedEntries.collectAsState()
+//    val downloadSpeedEntries by viewModel.downloadSpeedEntries.collectAsState()
+//    val batteryLevel by viewModel.batteryLevel.collectAsState()
+//    val remainingIdleTime by viewModel.remainingIdleTime.collectAsState()
+//
+//
+////// Proxy server state
+////    val isProxyRunning by viewModel.isProxyRunning.collectAsState()
+//    val proxyPort by viewModel.proxyPort.collectAsState()
+////    val proxyIP = "192.168.49.1" // Typically the group owner's IP in Wi-Fi Direct
+////
+//    // Update ViewModel when text changes
+//    LaunchedEffect(ssidFieldState.text) {
+//        viewModel.updateSSID(ssidFieldState.text)
+//    }
+//    LaunchedEffect(passwordFieldState.text) {
+//        viewModel.updatePassword(passwordFieldState.text)
+//    }
+//    LaunchedEffect(connectedDeviceInfos) {
+//        Log.d(
+//            "WiFiP2PHotspotApp",
+//            "ConnectedDeviceInfos updated: ${connectedDeviceInfos.size} devices"
+//        )
+//    }
+//    // Start idle monitoring when the hotspot is enabled
+//    LaunchedEffect(isHotspotEnabled) {
+//        if (isHotspotEnabled) {
+//            viewModel.startIdleMonitoring()
+//        }
+//    }
+//    // Handle UI Events
+//    LaunchedEffect(key1 = true) {
+//        viewModel.eventFlow.collect { event ->
+//            when (event) {
+//                is HotspotViewModel.UiEvent.ShowToast -> {
+//                    Toast.makeText(context, event.message, Toast.LENGTH_SHORT).show()
+//                }
+//                is HotspotViewModel.UiEvent.ShowSnackbar -> {
+//                    // Implement Snackbar if needed
+//                }
+//                is HotspotViewModel.UiEvent.StartProxyService -> {
+//                    val intent = Intent(context, ProxyService::class.java)
+//                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+//                        context.startForegroundService(intent)
+//                    } else {
+//                        context.startService(intent)
+//                    }
+//                }
+//                is HotspotViewModel.UiEvent.StopProxyService -> {
+//                    val intent = Intent(context, ProxyService::class.java)
+//                    context.stopService(intent)
+//                }
+//            }
+//        }
+//    }
+//    // Scaffold for overall layout
+//    Scaffold(
+//        topBar = {
+//            ImprovedHeader(
+//                isHotspotEnabled = isHotspotEnabled,
+//                viewModel = viewModel,
+//                onSettingsClick = { navController.navigate("settings_screen") }
+//            )
+//        },
+//        content = { paddingValues ->
+//            LazyColumn(
+//                contentPadding = paddingValues,
+//                modifier = Modifier
+//                    .fillMaxSize()
+//                    .padding(horizontal = 16.dp)
+//            ) {
+//                item {
+//                    Spacer(modifier = Modifier.height(16.dp))
+//                }
+//
+//                // Display Idle Countdown if applicable
+//                item {
+//                    IdleCountdownDisplay(remainingIdleTime = remainingIdleTime)
+//                }
+//
+//                item {
+//                    Spacer(modifier = Modifier.height(16.dp))
+//                }
+//
+//                if (connectedDeviceInfos.isNotEmpty()) {
+//                    item {
+//                        SpeedGraphSection(
+//                            uploadSpeeds = uploadSpeedEntries,
+//                            downloadSpeeds = downloadSpeedEntries
+//                        )
+//                    }
+//                }
+//
+//                // Input Fields and Band Selection
+//                if (connectedDeviceInfos.isEmpty()) {
+//                    item {
+//                        InputFieldsSection(
+//                            ssidInput = ssidFieldState,
+//                            onSsidChange = { newValue ->
+//                                ssidFieldState = newValue
+//                            },
+//                            passwordInput = passwordFieldState,
+//                            onPasswordChange = { newValue ->
+//                                passwordFieldState = newValue
+//                            },
+//                            isHotspotEnabled = isHotspotEnabled
+//                        )
+//                    }
+//                } else {
+//                    item {
+//                        ConnectionStatusBar(
+//                            uploadSpeed = uploadSpeed,
+//                            downloadSpeed = downloadSpeed,
+//                            totalDownload = downloadSpeed, // Adjust if you have a separate totalDownload
+//                            connectedDevicesCount = connectedDevices.size
+//                        )
+//                    }
+//
+//                }
+//
+//                item {
+//                    BatteryStatusSection(batteryLevel = batteryLevel)
+//                }
+//                item {
+//                    Spacer(modifier = Modifier.height(16.dp))
+//                }
+//                // Hotspot Control Section
+//                item {
+//                    if (isWifiEnabled(context) && isLocationEnabled(context)) {
+//                        HotspotControlSection(
+//                            isHotspotEnabled = isHotspotEnabled,
+//                            isProcessing = isProcessing,
+//                            ssidInput = ssidFieldState.text,
+//                            passwordInput = passwordFieldState.text,
+//                            selectedBand = selectedBand,
+//                            proxyPort = proxyPort,
+//                            onStartTapped = {
+//                                viewModel.onButtonStartTapped(
+//                                    ssidInput = ssidFieldState.text.ifBlank { "TetherGuard" },
+//                                    passwordInput = passwordFieldState.text.ifBlank { "00000000" },
+//                                    selectedBand = selectedBand,
+//                                )
+//                            },
+//                            onStopTapped = {
+//                                viewModel.onButtonStopTapped()
+//                            }
+//                        )
+//
+//
+//                    } else {
+//                        showServiceEnableDialog = true
+//                    }
+//                }
+//                item {
+//                    Spacer(modifier = Modifier.height(16.dp))
+//                }
+//                if (isHotspotEnabled) {
+//                    // Connected Devices Section
+//                    connectedDevicesSection(
+//                        devices = connectedDeviceInfos,
+//                        onDeviceAliasChange = { deviceAddress, alias ->
+//                            viewModel.updateDeviceAlias(deviceAddress, alias)
+//                        },
+//                        onBlockUnblock = { deviceAddress ->
+//                            val deviceInfo =
+//                                connectedDeviceInfos.find { it.device.deviceAddress == deviceAddress }
+//                            if (deviceInfo != null) {
+//                                if (deviceInfo.isBlocked) {
+//                                    viewModel.unblockDevice(deviceAddress)
+//                                } else {
+//                                    viewModel.blockDevice(deviceAddress)
+//                                }
+//                            }
+//                        },
+//                        onDisconnect = { deviceAddress ->
+//                            val deviceInfo =
+//                                connectedDeviceInfos.find { it.device.deviceAddress == deviceAddress }
+//                            if (deviceInfo != null) {
+//                                viewModel.disconnectDevice(deviceInfo)
+//                            }
+//                        }
+//                    )
+//                    if (blockedDeviceInfos.isNotEmpty()) {
+//                        blockedDevicesSection(
+//                            devices = blockedDeviceInfos,
+//                            onUnblock = { deviceAddress ->
+//                                viewModel.unblockDevice(deviceAddress)
+//                            }
+//                        )
+//                    }
+//                }
+////                item {
+////                    HotspotScheduler(
+////                        onScheduleStart = { timeInMillis ->
+////                            viewModel.scheduleHotspotStart(timeInMillis)
+////                        },
+////                        onScheduleStop = { timeInMillis ->
+////                            viewModel.scheduleHotspotStop(timeInMillis)
+////                        }
+////                    )
+////                }
+//
+//                item {
+//                    Spacer(modifier = Modifier.height(16.dp))
+//                }
+//                // Log Section
+//                item {
+//                    LogSection(logEntries = logEntries)
+//                }
+//
+//            }
+//        }
+//    )
+//}
+//
 
 /**
  * Checks if all required permissions are granted.

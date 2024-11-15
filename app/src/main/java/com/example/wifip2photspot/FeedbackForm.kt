@@ -15,6 +15,7 @@ import androidx.compose.ui.focus.*
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.*
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.wear.compose.material.ContentAlpha
 
@@ -50,7 +51,7 @@ fun FeedbackForm(onSubmit: (String) -> Unit) {
 
 @Composable
 fun ContactSupportSection(onContactSupport: () -> Unit) {
-    Column(modifier = Modifier.padding(16.dp)) {
+    Column(modifier = Modifier.padding(8.dp)) {
         Text("Need Help?", style = MaterialTheme.typography.titleMedium)
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -59,3 +60,5 @@ fun ContactSupportSection(onContactSupport: () -> Unit) {
         }
     }
 }
+
+

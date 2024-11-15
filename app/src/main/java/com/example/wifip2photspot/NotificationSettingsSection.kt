@@ -27,7 +27,7 @@ fun NotificationSettingsSection(
     vibrationEnabled: Boolean,
     onVibrationEnabledChange: (Boolean) -> Unit
 ) {
-    Column(modifier = Modifier.padding(16.dp)) {
+    Column(modifier = Modifier.padding(8.dp)) {
         Text("Notification Settings", style = MaterialTheme.typography.titleMedium)
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -60,15 +60,31 @@ fun SwitchPreference(
     onCheckedChange: (Boolean) -> Unit,
     enabled: Boolean = true
 ) {
+    var checkedState by rememberSaveable { mutableStateOf(true) }
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, modifier = Modifier.weight(1f))
+        Text(label, style = MaterialTheme.typography.bodyLarge)
         Switch(
             checked = checked,
-            onCheckedChange = onCheckedChange,
-            enabled = enabled
+            onCheckedChange = {
+                checkedState = it
+                onCheckedChange(it)
+            },
+            enabled = enabled,
+            thumbContent = {
+                if (checked) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = null,
+                        modifier = Modifier.size(SwitchDefaults.IconSize),
+
+                        )}
+            }
         )
     }
 }

@@ -342,4 +342,24 @@ fun SpeedGraphSection(
             .height(200.dp)
     )
 }
+@Composable
+fun BatteryStatusSection(batteryLevel: Int) {
+    Column(modifier = Modifier.padding(16.dp)) {
+        Text("Battery Status", style = MaterialTheme.typography.titleMedium)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text("Battery Level: $batteryLevel%")
+    }
+}
+//***********************improving*************
+//
+//if (_networkQuality.value == "Poor") {
+//    // Reduce video quality or data rate
+//} else if (_networkQuality.value == "Moderate") {
+//    // Set to medium quality
+//} else {
+//    // High quality
+//}
+
+
+
 

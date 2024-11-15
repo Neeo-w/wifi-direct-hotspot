@@ -26,11 +26,11 @@ fun InputFieldsSection(
     passwordInput: TextFieldValue,
     onPasswordChange: (TextFieldValue) -> Unit,
     isHotspotEnabled: Boolean,
-    proxyPort: Int,
-    onProxyPortChange: (Int) -> Unit,
-    selectedBand: String,
-    onBandSelected: (String) -> Unit,
-    bands: List<String>
+//    proxyPort: Int,
+//    onProxyPortChange: (Int) -> Unit,
+//    selectedBand: String,
+//    onBandSelected: (String) -> Unit,
+//    bands: List<String>
 ) {
     // State for password visibility
     var passwordVisible by rememberSaveable { mutableStateOf(false) }
@@ -133,80 +133,80 @@ fun InputFieldsSection(
 
                 // Proxy Port Input Field
 
-                // Proxy Port Field
-                if (!isHotspotEnabled) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Proxy Port:", style = MaterialTheme.typography.bodyMedium)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        OutlinedTextField(
-                            value = proxyPort.toString(),
-                            onValueChange = { newPort ->
-                                newPort.toIntOrNull()?.let {
-                                    onProxyPortChange(it)
-                                }
-                            },
-                            label = { Text("Port") },
-                            singleLine = true,
-                            modifier = Modifier.width(100.dp)
-                        )
-                    }
-                }
+//                // Proxy Port Field
+//                if (!isHotspotEnabled) {
+//                    Spacer(modifier = Modifier.height(8.dp))
+//                    Row(verticalAlignment = Alignment.CenterVertically) {
+//                        Text("Proxy Port:", style = MaterialTheme.typography.bodyMedium)
+//                        Spacer(modifier = Modifier.width(8.dp))
+//                        OutlinedTextField(
+//                            value = proxyPort.toString(),
+//                            onValueChange = { newPort ->
+//                                newPort.toIntOrNull()?.let {
+//                                    onProxyPortChange(it)
+//                                }
+//                            },
+//                            label = { Text("Port") },
+//                            singleLine = true,
+//                            modifier = Modifier.width(100.dp)
+//                        )
+//                    }
             }
-
-            // Band Selection Section
-            BandSelection(
-                selectedBand = selectedBand,
-                onBandSelected = onBandSelected,
-                bands = bands,
-                isHotspotEnabled = isHotspotEnabled
-            )
         }
+
+//            // Band Selection Section
+//            BandSelection(
+//                selectedBand = selectedBand,
+//                onBandSelected = onBandSelected,
+//                bands = bands,
+//                isHotspotEnabled = isHotspotEnabled
+//            )
     }
 }
 
-@Composable
-fun BandSelection(
-    selectedBand: String,
-    onBandSelected: (String) -> Unit,
-    bands: List<String>,
-    isHotspotEnabled: Boolean
-) {
-    Column(modifier = Modifier.padding(16.dp)) {
-        Text(
-            text = "Select Band",
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(bottom = 8.dp)
-        )
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            bands.forEach { band ->
-                OutlinedButton(
-                    onClick = { onBandSelected(band) },
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = if (selectedBand == band)
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                        else
-                            Color.Transparent
-                    ),
-                    enabled = !isHotspotEnabled,
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 4.dp)
-                ) {
-                    Text(
-                        text = band,
-                        color = if (selectedBand == band)
-                            MaterialTheme.colorScheme.primary
-                        else
-                            MaterialTheme.colorScheme.onSurface
-                    )
-                }
-            }
-        }
-    }
-}
-
-
+//
+//@Composable
+//fun BandSelection(
+//    selectedBand: String,
+//    onBandSelected: (String) -> Unit,
+//    bands: List<String>,
+//    isHotspotEnabled: Boolean
+//) {
+//    Column(modifier = Modifier.padding(16.dp)) {
+//        Text(
+//            text = "Select Band",
+//            style = MaterialTheme.typography.titleMedium,
+//            modifier = Modifier.padding(bottom = 8.dp)
+//        )
+//        Row(
+//            horizontalArrangement = Arrangement.SpaceBetween,
+//            modifier = Modifier.fillMaxWidth()
+//        ) {
+//            bands.forEach { band ->
+//                OutlinedButton(
+//                    onClick = { onBandSelected(band) },
+//                    colors = ButtonDefaults.outlinedButtonColors(
+//                        containerColor = if (selectedBand == band)
+//                            MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+//                        else
+//                            Color.Transparent
+//                    ),
+//                    enabled = !isHotspotEnabled,
+//                    modifier = Modifier
+//                        .weight(1f)
+//                        .padding(horizontal = 4.dp)
+//                ) {
+//                    Text(
+//                        text = band,
+//                        color = if (selectedBand == band)
+//                            MaterialTheme.colorScheme.primary
+//                        else
+//                            MaterialTheme.colorScheme.onSurface
+//                    )
+//                }
+//            }
+//        }
+//    }
+//}
+//
+//
