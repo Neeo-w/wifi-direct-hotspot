@@ -11,30 +11,20 @@ import com.example.wifip2photspot.BandSelection
 import com.example.wifip2photspot.ContactSupportSection
 import com.example.wifip2photspot.FeedbackForm
 import com.example.wifip2photspot.viewModel.HotspotViewModel
-import com.example.wifip2photspot.NotificationSettingsSection
-import com.example.wifip2photspot.VPN.VpnSettingsSection
 import com.example.wifip2photspot.ui.theme.ThemeToggle
-import com.example.wifip2photspot.viewModel.VpnViewModel
 
 @Composable
 fun SettingsContent(
     hotspotViewModel: HotspotViewModel,
-    vpnViewModel: VpnViewModel,
     paddingValues: PaddingValues
 ) {
     // Collect necessary state from ViewModel
     val isDarkTheme by hotspotViewModel.isDarkTheme.collectAsState()
-    val notificationEnabled by hotspotViewModel.notificationEnabled.collectAsState()
-    val soundEnabled by hotspotViewModel.notificationSoundEnabled.collectAsState()
-    val vibrationEnabled by hotspotViewModel.notificationVibrationEnabled.collectAsState()
     val autoShutdownEnabled by hotspotViewModel.autoShutdownEnabled.collectAsState()
     val idleTimeoutMinutes by hotspotViewModel.idleTimeoutMinutes.collectAsState()
     val wifiLockEnabled by hotspotViewModel.wifiLockEnabled.collectAsState()
     val selectedBand by hotspotViewModel.selectedBand.collectAsState()
     val isHotspotEnabled by hotspotViewModel.isHotspotEnabled.collectAsState()
-
-    val isVpnActive by vpnViewModel.isVpnActive.collectAsState()
-    val vpnStatusMessage by vpnViewModel.vpnStatusMessage.collectAsState()
 
 
     Column(
@@ -55,16 +45,6 @@ fun SettingsContent(
         )
 
         Spacer(modifier = Modifier.height(16.dp))
-
-        // Notification Settings
-        NotificationSettingsSection(
-            notificationEnabled = notificationEnabled,
-            onNotificationEnabledChange = { hotspotViewModel.updateNotificationEnabled(it) },
-            soundEnabled = soundEnabled,
-            onSoundEnabledChange = { hotspotViewModel.updateNotificationSoundEnabled(it) },
-            vibrationEnabled = vibrationEnabled,
-            onVibrationEnabledChange = { hotspotViewModel.updateNotificationVibrationEnabled(it) }
-        )
 
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -99,14 +79,6 @@ fun SettingsContent(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // VPN Settings Section
-        VpnSettingsSection(
-            isVpnActive = isVpnActive,
-            vpnStatusMessage = vpnStatusMessage,
-            onVpnToggle = { enabled ->
-                vpnViewModel.toggleVpn(enabled)
-            }
-        )
 
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -124,6 +96,5 @@ fun SettingsContent(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Add more settings sections as needed...
     }
 }

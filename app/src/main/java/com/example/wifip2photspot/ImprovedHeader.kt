@@ -1,24 +1,14 @@
 package com.example.wifip2photspot
-
-
-
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.MoreVert
-import com.example.wifip2photspot.viewModel.HotspotViewModel
 
-//@OptIn(ExperimentalMaterial3Api::class)
-//@Composable
-//fun ImprovedHeader(isHotspotEnabled: Boolean) {
-//    var showMenu by remember { mutableStateOf(false) }
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ImprovedHeader(
-    isHotspotEnabled: Boolean,
-    HotspotViewModel: HotspotViewModel,
     onSettingsClick: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }

@@ -1,7 +1,6 @@
 package com.example.wifip2photspot
 
 import android.net.wifi.p2p.WifiP2pDevice
-import java.time.LocalDate
 
 // DeviceInfo.kt
 data class DeviceInfo(

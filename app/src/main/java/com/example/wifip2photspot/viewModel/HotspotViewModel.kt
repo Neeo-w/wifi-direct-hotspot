@@ -1,9 +1,8 @@
 // HotspotViewModel.kt
 package com.example.wifip2photspot.viewModel
 
+import android.annotation.SuppressLint
 import android.app.Application
-import android.app.Notification
-import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -14,7 +13,6 @@ import android.net.NetworkRequest
 import android.net.TrafficStats
 import android.net.Uri
 import android.net.wifi.WifiManager
-import android.net.wifi.WpsInfo
 import android.net.wifi.p2p.WifiP2pConfig
 import android.net.wifi.p2p.WifiP2pDevice
 import android.net.wifi.p2p.WifiP2pManager
@@ -22,27 +20,15 @@ import android.os.BatteryManager
 import android.os.Build
 import android.os.Looper
 import android.service.controls.ControlsProviderService.TAG
-import android.util.Log
 import androidx.annotation.RequiresApi
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.contentcapture.ContentCaptureManager.Companion.isEnabled
-import androidx.core.app.NotificationCompat
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkManager
 import com.example.wifip2photspot.DeviceInfo
-import com.example.wifip2photspot.R
-import com.example.wifip2photspot.StartHotspotWorker
-import com.example.wifip2photspot.StopHotspotWorker
-import com.example.wifip2photspot.VPN.MyVpnService
-import com.example.wifip2photspot.VPN.VpnRepository
-import com.example.wifip2photspot.socksProxy.SSHServerManager
+
 
 import com.github.mikephil.charting.data.Entry
 import kotlinx.coroutines.Dispatchers
@@ -53,16 +39,12 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import timber.log.Timber
 import java.io.IOException
-import java.util.concurrent.TimeUnit
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
-@RequiresApi(Build.VERSION_CODES.Q)
 class HotspotViewModel(
     application: Context,
     private val dataStore: DataStore<Preferences>,
-    private val vpnRepository: VpnRepository
 ) : AndroidViewModel(application as Application) {
     // ----- DataStore Keys -----
     companion object {
@@ -75,30 +57,12 @@ class HotspotViewModel(
         private val WIFI_LOCK_ENABLED_KEY = booleanPreferencesKey("wifi_lock_enabled")
         private val _deviceAliases = MutableStateFlow<Map<String, String>>(emptyMap())
         val BIND_TO_MOBILE_DATA_KEY = booleanPreferencesKey("bind_to_mobile_data") // New Key
-
-
-
-    }
-
-    // Preferences Keys
-    private object PreferencesKeys {
-        val WIFI_LOCK_ENABLED = booleanPreferencesKey("wifi_lock_enabled")
-        private val DATA_USAGE_KEY = stringPreferencesKey("device_usage_key")
-        private val DARK_THEME_KEY = stringPreferencesKey("dark_theme_key")
-
-
-        // Other preference keys...
-    }
-
-    // Enum for themes
-    enum class AppTheme {
-        DEFAULT, DARK, AMOLED, CUSTOM
     }
 
     //     ----- Wi-Fi P2P Manager and Channel -----
-    val wifiManager: WifiP2pManager =
+    private val wifiManager: WifiP2pManager =
         application.getSystemService(Context.WIFI_P2P_SERVICE) as WifiP2pManager
-    val channel: WifiP2pManager.Channel =
+    private val channel: WifiP2pManager.Channel =
         wifiManager.initialize(application, Looper.getMainLooper(), null)
 
 
@@ -113,7 +77,6 @@ class HotspotViewModel(
     val selectedBand: StateFlow<String> = _selectedBand.asStateFlow()
 
     private val _isWifiP2pEnabled = MutableStateFlow(false)
-    val isWifiP2pEnabled: StateFlow<Boolean> = _isWifiP2pEnabled.asStateFlow()
 
     private val _isHotspotEnabled = MutableStateFlow(false)
     val isHotspotEnabled: StateFlow<Boolean> = _isHotspotEnabled.asStateFlow()
@@ -153,14 +116,9 @@ class HotspotViewModel(
     private val _connectedDeviceInfos = MutableStateFlow<List<DeviceInfo>>(emptyList())
     val connectedDeviceInfos: StateFlow<List<DeviceInfo>> = _connectedDeviceInfos.asStateFlow()
 
-    //visible password
-    private var passwordVisible by mutableStateOf(false)
-    // SSH Server Configuration
-    private var sshServerManager: SSHServerManager? = null
 
     // ----- StateFlows and Variables -----
     private val _bindToMobileData = MutableStateFlow(false)
-    val bindToMobileData: StateFlow<Boolean> = _bindToMobileData.asStateFlow()
 
 
 
@@ -168,87 +126,34 @@ class HotspotViewModel(
     sealed class UiEvent {
         data class ShowToast(val message: String) : UiEvent()
         data class ShowSnackbar(val message: String) : UiEvent()
-        object StartProxyService : UiEvent()
-        object StopProxyService : UiEvent()
+        data object StartProxyService : UiEvent()
+        data object StopProxyService : UiEvent()
     }
 
-    // StateFlows to hold the lists
-//    private val _allowedMacAddresses = MutableStateFlow<Set<String>>(emptySet())
 
     // Add a new property for blocked devices
     private val _blockedMacAddresses = MutableStateFlow<Set<String>>(emptySet())
-    val blockedMacAddresses: StateFlow<Set<String>> = _blockedMacAddresses.asStateFlow()
 
     private val _blockedDeviceInfos = MutableStateFlow<List<DeviceInfo>>(emptyList())
     val blockedDeviceInfos: StateFlow<List<DeviceInfo>> = _blockedDeviceInfos.asStateFlow()
 
-    private val sshLocalPort = 2222 // SSH Server Port
-    private val proxyPort = 8181 // SOCKS Proxy Port
-
-
-    // Load aliases in init block
-//
-//    private val _historicalDataUsage = MutableStateFlow<List<DataUsageRecord>>(emptyList())
-//    val historicalDataUsage: StateFlow<List<DataUsageRecord>> = _historicalDataUsage.asStateFlow()
 
     private val _uploadSpeedEntries = MutableStateFlow<List<Entry>>(emptyList())
-    val uploadSpeedEntries: StateFlow<List<Entry>> = _uploadSpeedEntries.asStateFlow()
 
     private val _downloadSpeedEntries = MutableStateFlow<List<Entry>>(emptyList())
-    val downloadSpeedEntries: StateFlow<List<Entry>> = _downloadSpeedEntries.asStateFlow()
-
 
     // Variables to store current speeds in Kbps
     private val _uploadSpeedKbps = MutableStateFlow(0f)
-    val uploadSpeedKbps: StateFlow<Float> = _uploadSpeedKbps.asStateFlow()
 
     private val _downloadSpeedKbps = MutableStateFlow(0f)
-    val downloadSpeedKbps: StateFlow<Float> = _downloadSpeedKbps.asStateFlow()
-
-    private val _dataUsageThreshold = MutableStateFlow<Long>(0L) // in bytes
-    val dataUsageThreshold: StateFlow<Long> = _dataUsageThreshold.asStateFlow()
-
-    // Notification Settings State
-    private val _notificationEnabled = MutableStateFlow(true)
-    val notificationEnabled: StateFlow<Boolean> = _notificationEnabled.asStateFlow()
-
-    private val notificationManager =
-        application.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
-    private val _notificationSoundEnabled = MutableStateFlow(true)
-    val notificationSoundEnabled: StateFlow<Boolean> = _notificationSoundEnabled.asStateFlow()
-
-    private val _notificationVibrationEnabled = MutableStateFlow(true)
-    val notificationVibrationEnabled: StateFlow<Boolean> =
-        _notificationVibrationEnabled.asStateFlow()
 
     //battery level
     private val _batteryLevel = MutableStateFlow(100)
     val batteryLevel: StateFlow<Int> = _batteryLevel.asStateFlow()
-
     private val _networkQuality = MutableStateFlow("Good")
-    val networkQuality: StateFlow<String> = _networkQuality.asStateFlow()
-
-
     private val _isIdle = MutableStateFlow(false)
-    val isIdle: StateFlow<Boolean> = _isIdle.asStateFlow()
-
-//    private val _remainingIdleTime = MutableStateFlow<Long>(0L)
-//    val remainingIdleTime: StateFlow<Long> = _remainingIdleTime.asStateFlow()
-
-
-
     private val idleThresholdBytesPerSecond = 100L // Define your threshold
-    private val idleCheckIntervalMillis = 30000L // Check every 30 seconds
-    private val idleTimeoutMillis = 600000L // 10 minutes of inactivity
     private var lastTotalBytes: Long = 0L
-
-    //    private var lastTotalBytes: Long = 0L
-    private var idleStartTime: Long = 0L
-    private var isCountingDown: Boolean = false
-
-    private val _appTheme = MutableStateFlow(AppTheme.DEFAULT)
-    val appTheme: StateFlow<AppTheme> = _appTheme.asStateFlow()
 
     // Idle Settings State
     private val _autoShutdownEnabled = MutableStateFlow(false)
@@ -258,7 +163,7 @@ class HotspotViewModel(
     val idleTimeoutMinutes: StateFlow<Int> = _idleTimeoutMinutes.asStateFlow()
 
     // Remaining Idle Time State
-    private val _remainingIdleTime = MutableStateFlow<Long>(0L)
+    private val _remainingIdleTime = MutableStateFlow(0L)
     val remainingIdleTime: StateFlow<Long> = _remainingIdleTime.asStateFlow()
 
     // Wi-Fi Lock Variables
@@ -267,74 +172,9 @@ class HotspotViewModel(
     // Wi-Fi Lock Enabled StateFlow
     private val _wifiLockEnabled = MutableStateFlow(false)
     val wifiLockEnabled: StateFlow<Boolean> = _wifiLockEnabled.asStateFlow()
-//    private val socksProxyManager = SocksProxyManager(proxyPort = proxyPort)
-
-
-//    // Proxy server properties
-//    private val _isProxyRunning = MutableStateFlow(false)
-//    val isProxyRunning: StateFlow<Boolean> = _isProxyRunning.asStateFlow()
-//
-//    private val _proxyPort = MutableStateFlow(8080)
-//    val proxyPort: StateFlow<Int> = _proxyPort.asStateFlow()
-
-
-    //    // Update Proxy Port
-//    fun updateProxyPort(port: Int) {
-//        _proxyPort.value = port
-//    }
-    // SSH Server Configuration
-
-
-    // ----- Function to Update Bind to Mobile Data Preference -----
-    fun updateBindToMobileData(enabled: Boolean) {
-        _bindToMobileData.value = enabled
-        viewModelScope.launch {
-            dataStore.edit { preferences ->
-                preferences[BIND_TO_MOBILE_DATA_KEY] = enabled
-            }
-            if (_isHotspotEnabled.value) {
-                // Restart SSH server with updated binding preference
-                sshServerManager?.stopSSHServer()
-                sshServerManager?.startSSHServer(
-                    localPort = sshLocalPort
-//                    bindToMobileData = enabled
-                )
-                updateLog("SSH Server binding to mobile data: $enabled")
-            }
-        }
-    }
-
-
-
-    ///////////////////
-    // VPN Control
-    private val _isVpnActive = MutableStateFlow(false)
-    val isVpnActive: StateFlow<Boolean> = _isVpnActive.asStateFlow()
-
-    // ----- SSH Server Management -----
-    // Start SSH Server
-    private fun startSSHServer() {
-        viewModelScope.launch {
-            sshServerManager?.startSSHServer(
-                localPort = sshLocalPort,
-//                bindToMobileData = _bindToMobileData.value
-            )
-            updateLog("SSH Server started on port $sshLocalPort")
-        }
-    }
-
-    // Stop SSH Server
-    private fun stopSSHServer() {
-        viewModelScope.launch {
-            sshServerManager?.stopSSHServer()
-            updateLog("SSH Server stopped.")
-        }
-    }
 
 
     init {
-        // ----- Load SSID and Password from DataStore -----
-        // ----- Load SSID and Password from DataStore -----
         viewModelScope.launch {
             dataStore.data
                 .catch { exception ->
@@ -349,26 +189,6 @@ class HotspotViewModel(
                     val newPassword = preferences[PASSWORD_KEY] ?: "00000000"
                     _ssid.value = newSSID
                     _password.value = newPassword
-
-                    // Initialize SSHServerManager with updated credentials
-                    sshServerManager?.stopSSHServer()
-                    sshServerManager = SSHServerManager(
-                        context = getApplication<Application>().applicationContext,
-                        sshUsername = newSSID,
-                        sshPassword = newPassword,
-                        proxyPort = proxyPort
-                    )
-
-                    // If hotspot is already enabled, restart SSH server with new credentials
-                    if (_isHotspotEnabled.value) {
-                        // Stop and restart SSH server to apply new credentials
-                        sshServerManager?.stopSSHServer()
-                        sshServerManager?.startSSHServer(
-                            localPort = sshLocalPort
-//                            bindToMobileData = _bindToMobileData.value
-                        )
-                        updateLog("SSH Server updated with new SSID and Password.")
-                    }
                 }
         }
 
@@ -379,7 +199,6 @@ class HotspotViewModel(
                 _idleTimeoutMinutes.value = preferences[IDLE_TIMEOUT_MINUTES_KEY] ?: 10
                 _wifiLockEnabled.value = preferences[WIFI_LOCK_ENABLED_KEY] ?: false
                 _bindToMobileData.value = preferences[BIND_TO_MOBILE_DATA_KEY] ?: false
-                // Load other preferences...
             }
         }
         // ----- Start Monitoring Network Speeds -----
@@ -432,55 +251,9 @@ class HotspotViewModel(
         }
 
         monitorNetworkSpeeds()
-//// Start additional monitoring services
         startBatteryMonitoring()
         startNetworkMonitoring()
-//        viewModelScope.launch {
-//            dataStore.data.collect { preferences ->
-//                _dataUsageThreshold.value = preferences[DATA_USAGE_THRESHOLD_KEY] ?: 0L
-//            }
-//        }
     }
-
-    private fun startVpnService() {
-        val vpnIntent = Intent(getApplication(), MyVpnService::class.java)
-        getApplication<Application>().startService(vpnIntent)
-        updateLog("VPN Service Started via HotspotViewModel.")
-    }
-
-    private fun stopVpnService() {
-        val vpnIntent = Intent(getApplication(), MyVpnService::class.java)
-        getApplication<Application>().stopService(vpnIntent)
-        updateLog("VPN Service Stopped via HotspotViewModel.")
-    }
-//    // ----- Methods to Handle BroadcastReceiver Calls -----
-//    fun startTethering(ssid: String, password: String, selectedBand: Int) {
-//        viewModelScope.launch {
-//            _isProcessing.value = true
-//            // Start Wi-Fi Direct group with specified SSID, password, and band
-//            // Implement group creation logic here using WifiP2pManager APIs
-//            // Once the group is successfully formed, the BroadcastReceiver will handle the rest
-//            _isHotspotEnabled.value = true
-//            updateLog("Tethering started with SSID: $ssid")
-//            // Start VPN via repository
-//            vpnRepository.startVpn()
-//            _isProcessing.value = false
-//        }
-//    }
-//
-//    fun stopTethering() {
-//        viewModelScope.launch {
-//            _isProcessing.value = true
-//            // Stop Wi-Fi Direct group
-//            // Implement group disbanding logic here using WifiP2pManager APIs
-//            _isHotspotEnabled.value = false
-//            updateLog("Tethering stopped.")
-//            // Stop VPN via repository
-//            vpnRepository.stopVpn()
-//            _isProcessing.value = false
-//        }
-//    }
-
     ///////////////////////////////////////////////////////
     @Suppress("EXPERIMENTAL_API_USAGE")
     private fun monitorNetworkSpeeds() {
@@ -522,75 +295,34 @@ class HotspotViewModel(
         }
     }
 
-
-
     // ----- Function to Handle BroadcastReceiver Calls -----
     fun onGroupOwnerChanged(isGroupOwner: Boolean) {
         viewModelScope.launch {
             if (isGroupOwner) {
                 _isHotspotEnabled.value = true
                 updateLog("Device is Group Owner. Starting SSH Server and VPN.")
-                // Start SSH Server
-                startSSHServer()
-                // Start VPN via repository
-                vpnRepository.startVpn()
-//                startVpn()
+
             } else {
                 _isHotspotEnabled.value = false
                 updateLog("Device is Client. SSH Server and VPN are not required.")
-                // Optionally, handle client-specific logic
             }
         }
     }
-
-//    // Function to start VPN
-//    private fun startVpn() {
-//        val vpnIntent = Intent(getApplication(), MyVpnService::class.java)
-//        getApplication<Application>().startService(vpnIntent)
-//        _isVpnActive.value = true
-//        updateLog("VPN Service Started")
-//        viewModelScope.launch {
-//            _eventFlow.emit(UiEvent.ShowToast("VPN started successfully."))
-//        }
-//    }
-//
-//    // Function to stop VPN
-//    private fun stopVpn() {
-//        val vpnIntent = Intent(getApplication(), MyVpnService::class.java)
-//        getApplication<Application>().stopService(vpnIntent)
-//        _isVpnActive.value = false
-//        updateLog("VPN Service Stopped")
-//        viewModelScope.launch {
-//            _eventFlow.emit(UiEvent.ShowToast("VPN stopped successfully."))
-//        }
-//    }
-    ////////*(((((((((((***********))))))))))))///////////////////// //////////////////////////////working fine //////////////////////////////////
-    // ----- Helper Methods -----
     fun updateLog(message: String) {
         viewModelScope.launch {
             _logEntries.value += message
-            // Alternatively, implement a logging mechanism or update a StateFlow for logs
         }
     }
 
     // ----- Function to Handle Device List Changes -----
+    @SuppressLint("TimberArgCount")
     fun onDevicesChanged(deviceList: Collection<WifiP2pDevice>) {
-        val previousDevices = _connectedDevices.value
+        _connectedDevices.value
         updateLog("Connected Devices: ${deviceList.size}")
         _connectedDevices.value = deviceList.toList()
         enforceAccessControl()
         // Check for new connections
-        val newDevices = _connectedDevices.value - previousDevices
-        val disconnectedDevices = previousDevices - _connectedDevices.value
-
-        newDevices.forEach { device ->
-            sendDeviceConnectionNotification(device, connected = true)
-        }
-        disconnectedDevices.forEach { device ->
-            sendDeviceConnectionNotification(device, connected = false)
-        }
-
-        Log.d("HotspotViewModel", "Devices changed: ${deviceList.size} devices")
+        Timber.tag("HotspotViewModel").d("%s devices", "Devices changed: %s", deviceList.size)
         val blockedAddresses = _blockedMacAddresses.value
         _connectedDeviceInfos.value = deviceList.map { device ->
             val isBlocked = blockedAddresses.contains(device.deviceAddress)
@@ -606,21 +338,14 @@ class HotspotViewModel(
         viewModelScope.launch {
             _isHotspotEnabled.value = false
             updateLog("Group disbanded. Stopping SSH Server and VPN.")
-            // Stop SSH Server
-            stopSSHServer()
-            // Stop VPN via repository
-            vpnRepository.stopVpn()
-//            stopVpn()
         }
     }
     // ----- Lifecycle Management -----
     override fun onCleared() {
         super.onCleared()
         releaseWifiLock()
-        stopSSHServer()
         onButtonStopTapped()
         updateLog("SSH Server and Proxy Server cleaned up.")
-        // Cancel any ongoing coroutines if necessary
     }
 
 
@@ -660,23 +385,8 @@ class HotspotViewModel(
         }
     }
 
-    // ----- Function to Start Tethering -----
-    fun startTethering() {
-        viewModelScope.launch {
-            _isProcessing.value = true
-            try {
-                // Start Wi-Fi Direct group with SSID and Password
-                onButtonStartTapped(ssid.value, password.value, selectedBand.value)
-            } catch (e: Exception) {
-                Log.e(TAG, "Error starting tethering: ${e.message}")
-                _isHotspotEnabled.value = false
-                _isProcessing.value = false
-                _eventFlow.emit(UiEvent.ShowToast("Error starting tethering: ${e.message}"))
-            }
-        }
-    }
     // ----- Function to Handle Start Hotspot Button Tapped -----
-    private fun onButtonStartTapped(
+    fun onButtonStartTapped(
         ssidInput: String,
         passwordInput: String,
         selectedBand: String
@@ -748,19 +458,8 @@ class HotspotViewModel(
                                 updateLog("---------------------------------------------------")
                                 _isProcessing.value = false
                                 _eventFlow.emit(UiEvent.ShowToast("Hotspot started successfully."))
-
-                                // Start VPN
-                                vpnRepository.startVpn()
-//                                startVpn()
-
-                                // Start SSH Server
-                                startSSHServer()
-
                                 // Acquire Wi-Fi Lock if enabled
                                 acquireWifiLock()
-
-                                // Show Hotspot Status Notification
-                                showHotspotStatusNotification()
 
                                 // Start Idle Monitoring
                                 startIdleMonitoring()
@@ -814,8 +513,9 @@ class HotspotViewModel(
             _isProcessing.value = true // Start processing
 
             try {
-                suspendCancellableCoroutine<Unit> { cont ->
+                suspendCancellableCoroutine {
                     wifiManager.removeGroup(channel, object : WifiP2pManager.ActionListener {
+                        @RequiresApi(Build.VERSION_CODES.R)
                         override fun onSuccess() {
                             viewModelScope.launch {
                                 updateLog("Hotspot stopped successfully.")
@@ -824,21 +524,10 @@ class HotspotViewModel(
                                 _isProcessing.value = false
                                 _eventFlow.emit(UiEvent.ShowToast("Hotspot stopped successfully."))
 
-                                Log.d(TAG, "Wi-Fi Direct group removed successfully.")
-                                cont.resume(Unit)
-
-                                // Stop VPN
-                                vpnRepository.stopVpn()
-//                                stopVpn()
-
-                                // Stop SSH Server
-                                stopSSHServer()
+                                Timber.tag(TAG).d("Wi-Fi Direct group removed successfully.")
 
                                 // Release Wi-Fi Lock if acquired
                                 releaseWifiLock()
-
-                                // Remove Hotspot Status Notification
-                                removeHotspotStatusNotification()
 
                                 // Reset Idle Monitoring
                                 _remainingIdleTime.value = 0L
@@ -884,7 +573,7 @@ class HotspotViewModel(
                 networkCapabilities: NetworkCapabilities
             ) {
                 val linkDownstreamBandwidthKbps = networkCapabilities.linkDownstreamBandwidthKbps
-                val linkUpstreamBandwidthKbps = networkCapabilities.linkUpstreamBandwidthKbps
+                networkCapabilities.linkUpstreamBandwidthKbps
 
                 val quality = when {
                     linkDownstreamBandwidthKbps < 150 -> "Poor"
@@ -990,12 +679,10 @@ class HotspotViewModel(
                 val connectedDevices = _connectedDevices.value
                 val (rxBytes, txBytes) = getSessionDataUsage()
                 val currentTotalBytes = rxBytes + txBytes
-
-                val dataUsageInInterval: Long
-                if (lastTotalBytes == 0L) {
-                    dataUsageInInterval = 0L // No previous data to compare
+                val dataUsageInInterval: Long = if (lastTotalBytes == 0L) {
+                    0L // No previous data to compare
                 } else {
-                    dataUsageInInterval = currentTotalBytes - lastTotalBytes
+                    currentTotalBytes - lastTotalBytes
                 }
                 lastTotalBytes = currentTotalBytes
 
@@ -1028,7 +715,7 @@ class HotspotViewModel(
     }
 
     // Function to get session data usage (implementation depends on previous steps)
-    fun getSessionDataUsage(): Pair<Long, Long> {
+    private fun getSessionDataUsage(): Pair<Long, Long> {
         val rxBytes = TrafficStats.getTotalRxBytes()
         val txBytes = TrafficStats.getTotalTxBytes()
         return Pair(rxBytes, txBytes)
@@ -1067,72 +754,6 @@ class HotspotViewModel(
         }
     }
 
-    // Function to send notifications
-    fun sendDeviceConnectionNotification(deviceName: String) {
-        viewModelScope.launch {
-            val notification: Notification =
-                NotificationCompat.Builder(getApplication(), "device_connection_channel")
-                    .setSmallIcon(R.drawable.ic_notification) // Ensure you have a valid icon
-                    .setContentTitle("Device Connected")
-                    .setContentText("$deviceName has connected to the hotspot.")
-                    .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-                    .build()
-
-            notificationManager.notify(1185509172, notification)
-        }
-    }
-
-
-    private fun sendDeviceConnectionNotification(device: WifiP2pDevice, connected: Boolean) {
-        val notificationManager =
-            getApplication<Application>().getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val notificationId = device.deviceAddress.hashCode()
-
-        val contentText = if (connected) {
-            "Device connected: ${device.deviceName}"
-        } else {
-            "Device disconnected: ${device.deviceName}"
-        }
-
-        val notification =
-            NotificationCompat.Builder(getApplication<Application>(), "device_connection_channel")
-                .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle("Device Connection")
-                .setContentText(contentText)
-                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-                .build()
-
-        notificationManager.notify(notificationId, notification)
-    }
-
-    fun showHotspotStatusNotification() {
-        val notificationManager =
-            getApplication<Application>().getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val notificationId = 1000 // Unique ID for the hotspot status notification
-
-        val notification = NotificationCompat.Builder(getApplication<Application>(), "tether_guard")
-            .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Title")
-            .setContentText("Content")
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setDefaults(NotificationCompat.DEFAULT_ALL)
-            .apply {
-                if (!notificationSoundEnabled.value) {
-                    setSound(null)
-                }
-                if (!notificationVibrationEnabled.value) {
-                    setVibrate(null)
-                }
-            }
-            .build()
-    }
-
-    fun removeHotspotStatusNotification() {
-        val notificationManager =
-            getApplication<Application>().getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val notificationId = 1000
-        notificationManager.cancel(notificationId)
-    }
 
 
     fun startDataUsageTracking() {
@@ -1221,18 +842,6 @@ class HotspotViewModel(
             }
         })
     }
-    // Function to initialize the group again after removing it
-    private fun initializeGroup() {
-        wifiManager.createGroup(channel, object : WifiP2pManager.ActionListener {
-            override fun onSuccess() {
-                updateLog("Group reinitialized after device disconnection.")
-            }
-
-            override fun onFailure(reason: Int) {
-                updateLog("Failed to reinitialize group after device disconnection.")
-            }
-        })
-    }
 
     //    // Update alias function
     fun updateDeviceAlias(deviceAddress: String, alias: String) {
@@ -1258,47 +867,9 @@ class HotspotViewModel(
         }
     }
 
-    fun updateNotificationEnabled(enabled: Boolean) {
-        _notificationEnabled.value = enabled
-        // Save to DataStore
-    }
-
-    fun updateNotificationSoundEnabled(enabled: Boolean) {
-        _notificationSoundEnabled.value = enabled
-        // Save to DataStore
-    }
-
-    fun updateNotificationVibrationEnabled(enabled: Boolean) {
-        _notificationVibrationEnabled.value = enabled
-        // Save to DataStore
-    }
-
     fun updateTheme(isDark: Boolean) {
         _isDarkTheme.value = isDark
         // Save to DataStore if needed
     }
 
-    fun attemptReconnection() {
-        viewModelScope.launch {
-            var attempts = 0
-            val maxAttempts = 5
-            val delayBetweenAttempts = 5000L // 5 seconds
-
-            while (attempts < maxAttempts && !isConnected()) {
-                attempts++
-                connectToGroup()
-                delay(delayBetweenAttempts)
-            }
-            if (!isConnected()) {
-                _eventFlow.emit(UiEvent.ShowToast("Failed to reconnect after $attempts attempts."))
-            }
-        }
-    }
-    private fun isConnected(): Boolean {
-        // Implement logic to check if the hotspot is connected
-        return isHotspotEnabled.value && _connectedDevices.value.isNotEmpty()
-    }
-    private fun connectToGroup() {
-        initializeGroup()
-    }
 }
