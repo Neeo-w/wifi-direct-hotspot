@@ -92,6 +92,8 @@ class HttpProxyServer(private val port: Int, private val bindIp: String) {
                     forwardData(targetSocket!!.getInputStream(), clientOutput)
                 }
 
+
+
                 // Wait for both threads to finish
                 clientToServer.join()
                 serverToClient.join()
