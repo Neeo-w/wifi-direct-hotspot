@@ -73,25 +73,25 @@ dependencies {
     debugImplementation(libs.androidx.ui.test.manifest)
     implementation ("androidx.compose.material:material-icons-extended:1.5.0")
 
-    implementation ("androidx.work:work-runtime-ktx:2.7.1")
+//    implementation ("androidx.work:work-runtime-ktx:2.7.1")
 
 
     // DataStore
     implementation ("androidx.datastore:datastore-preferences:1.0.0")
     implementation ("androidx.datastore:datastore-core:1.0.0")
 
-    implementation("com.github.PhilJay:MPAndroidChart:v3.1.0")
-
-    implementation ("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.5.2") // Version before 1.6.0
-
-    implementation ("androidx.work:work-runtime-ktx:2.7.1")
+//    implementation("com.github.PhilJay:MPAndroidChart:v3.1.0")
+//
+//    implementation ("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.5.2") // Version before 1.6.0
+//
+//    implementation ("androidx.work:work-runtime-ktx:2.7.1")
 
     implementation ("androidx.core:core-ktx:1.10.1")
     implementation ("androidx.navigation:navigation-compose:2.8.3")
 
-    implementation ("com.jcraft:jsch:0.1.55")
-
-    implementation ("org.apache.sshd:sshd-core:2.9.0")
+//    implementation ("com.jcraft:jsch:0.1.55")
+//
+//    implementation ("org.apache.sshd:sshd-core:2.9.0")
 //    implementation(libs.charts)
 
 
@@ -100,5 +100,14 @@ dependencies {
 //    implementation ("com.github.bumptech.glide:glide:4.15.1")
 
     implementation(libs.timber)
+
+    implementation (libs.okhttp)
+    implementation (libs.nanohttpd)
+//    implementation (libs.littleproxy)
+//    implementation ("org.littleshoot:littleproxy:2.0.0-beta6")
+//    implementation (libs.netty.all)
+
+
+
 
 }

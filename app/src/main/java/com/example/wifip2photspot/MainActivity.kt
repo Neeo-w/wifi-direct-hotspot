@@ -1,21 +1,38 @@
 // MainActivity.kt
 package com.example.wifip2photspot
+import android.Manifest
+import android.app.Activity.WIFI_P2P_SERVICE
 import android.content.Context
+import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
+import android.location.LocationManager
+import android.net.Uri
+import android.net.wifi.WifiManager
 import android.net.wifi.p2p.WifiP2pManager
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.core.content.ContextCompat
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.lifecycle.ViewModelProvider
+import com.example.wifip2photspot.ui.screens.PermissionDeniedDialog
+import com.example.wifip2photspot.ui.screens.ServiceDisabledDialog
 import com.example.wifip2photspot.ui.theme.WiFiP2PHotspotTheme
 import com.example.wifip2photspot.viewModel.HotspotViewModel
 import com.example.wifip2photspot.viewModel.HotspotViewModelFactory
@@ -24,36 +41,30 @@ import com.example.wifip2photspot.viewModel.WifiDirectBroadcastReceiver
 class MainActivity : ComponentActivity() {
     private lateinit var hotspotViewModel: HotspotViewModel
     private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
-    private lateinit var receiver: WifiDirectBroadcastReceiver
-    private lateinit var intentFilter: IntentFilter
-    private lateinit var wifiManager: WifiP2pManager
+    private lateinit var wifiP2pManager: WifiP2pManager
     private lateinit var channel: WifiP2pManager.Channel
+    private lateinit var receiver: WifiDirectBroadcastReceiver
+    private var receiverRegistered = false
+
+    private val permissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
+            val deniedPermissions = permissions.filter { !it.value }.keys
+            if (deniedPermissions.isEmpty()) {
+                initializeWifiP2p()
+            } else {
+                showPermissionRationaleDialog(deniedPermissions.toList())
+            }
+        }
+
+    private var showPermissionDialog by mutableStateOf(false)
+    private var deniedPermissionsList by mutableStateOf<List<String>>(emptyList())
+    private var showWifiDisabledDialog by mutableStateOf(false)
+    private var showLocationDisabledDialog by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Initialize HotspotViewModel
-        val hotspotViewModelFactory = HotspotViewModelFactory(application, dataStore)
-        hotspotViewModel =
-            ViewModelProvider(this, hotspotViewModelFactory)[HotspotViewModel::class.java]
-
-        wifiManager =
-            applicationContext.getSystemService(Context.WIFI_P2P_SERVICE) as WifiP2pManager
-        channel = wifiManager.initialize(this, mainLooper, null)
-        // Initialize the BroadcastReceiver
-        receiver = WifiDirectBroadcastReceiver(
-            manager = wifiManager, // Ensure wifiManager is initialized
-            channel = channel, // Ensure channel is initialized
-            viewModel = hotspotViewModel
-        )
-
-        // Initialize IntentFilter
-        intentFilter = IntentFilter().apply {
-            addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION)
-            addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION)
-            addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION)
-            addAction(WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION)
-        }
+        hotspotViewModel = HotspotViewModel(applicationContext, dataStore)
 
         setContent {
             val isDarkTheme by hotspotViewModel.isDarkTheme.collectAsState()
@@ -62,24 +73,151 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    // Set up NavHost
-                    WiFiP2PHotspotApp(
-                        hotspotViewModel = hotspotViewModel
-                    )
+                    WiFiP2PHotspotApp(hotspotViewModel = hotspotViewModel)
 
+                    LaunchedEffect(Unit) {
+                        if (checkAndRequestPermissions()) {
+                            initializeWifiP2p()
+                        }
+                    }
+
+                    // Show dialogs for Wi-Fi, Location, and permissions
+                    if (showWifiDisabledDialog) {
+                        ServiceDisabledDialog(
+                            serviceName = "Wi-Fi",
+                            onDismiss = { showWifiDisabledDialog = false },
+                            onConfirm = { openWifiSettings() }
+                        )
+                    }
+
+                    if (showLocationDisabledDialog) {
+                        ServiceDisabledDialog(
+                            serviceName = "Location",
+                            onDismiss = { showLocationDisabledDialog = false },
+                            onConfirm = { openLocationSettings() }
+                        )
+                    }
+
+                    if (showPermissionDialog) {
+                        PermissionDeniedDialog(
+                            deniedPermissions = deniedPermissionsList,
+                            onDismiss = { showPermissionDialog = false },
+                            onConfirm = {
+                                showPermissionDialog = false
+                                requestPermissions(deniedPermissionsList)
+                            },
+                            onOpenSettings = {
+                                val intent = Intent(
+                                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    Uri.fromParts("package", packageName, null)
+                                )
+                                startActivity(intent)
+                                showPermissionDialog = false
+                            }
+                        )
+                    }
                 }
             }
         }
     }
 
-    override fun onPause() {
-        super.onPause()
-        // Unregister receiver
-        unregisterReceiver(receiver)
-    }
-
     override fun onResume() {
         super.onResume()
-        registerReceiver(receiver, intentFilter)
+        if (!isWifiEnabled()) {
+            showWifiDisabledDialog = true
+        } else if (!isLocationEnabled()) {
+            showLocationDisabledDialog = true
+        } else {
+            if (checkAndRequestPermissions()) {
+                initializeWifiP2p()
+            }
+        }
+
+        if (this::wifiP2pManager.isInitialized && this::channel.isInitialized) {
+            val intentFilter = IntentFilter().apply {
+                addAction(WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION)
+                addAction(WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION)
+            }
+            receiver = WifiDirectBroadcastReceiver(wifiP2pManager, channel, hotspotViewModel)
+            registerReceiver(receiver, intentFilter)
+            receiverRegistered = true
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (receiverRegistered) {
+            unregisterReceiver(receiver)
+            receiverRegistered = false
+        }
+    }
+
+    private fun checkAndRequestPermissions(): Boolean {
+        val requiredPermissions = mutableListOf<String>()
+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            requiredPermissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.NEARBY_WIFI_DEVICES) != PackageManager.PERMISSION_GRANTED) {
+                requiredPermissions.add(Manifest.permission.NEARBY_WIFI_DEVICES)
+            }
+        }
+
+        return if (requiredPermissions.isNotEmpty()) {
+            requestPermissions(requiredPermissions)
+            false
+        } else {
+            true
+        }
+    }
+
+    private fun requestPermissions(permissions: List<String>) {
+        permissionLauncher.launch(permissions.toTypedArray())
+    }
+
+    private fun showPermissionRationaleDialog(deniedPermissions: List<String>) {
+        deniedPermissionsList = deniedPermissions
+        showPermissionDialog = true
+    }
+
+    private fun initializeWifiP2p() {
+        if (!isWifiEnabled()) {
+            showWifiDisabledDialog = true
+            return
+        }
+
+        if (!isLocationEnabled()) {
+            showLocationDisabledDialog = true
+            return
+        }
+
+        wifiP2pManager = getSystemService(WIFI_P2P_SERVICE) as WifiP2pManager
+        channel = wifiP2pManager.initialize(this, mainLooper, null)
+//        hotspotViewModel.initialize(wifiP2pManager, channel)
+    }
+
+    private fun isWifiEnabled(): Boolean {
+        val wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
+        return wifiManager.isWifiEnabled
+    }
+
+    private fun isLocationEnabled(): Boolean {
+        val locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
+        return locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+                locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+    }
+
+    private fun openWifiSettings() {
+        val intent = Intent(Settings.ACTION_WIFI_SETTINGS)
+        startActivity(intent)
+        showWifiDisabledDialog = false
+    }
+
+    private fun openLocationSettings() {
+        val intent = Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
+        startActivity(intent)
+        showLocationDisabledDialog = false
     }
 }

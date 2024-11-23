@@ -22,6 +22,7 @@ fun WiFiP2PHotspotApp(
         navController = navController,
         hotspotViewModel = hotspotViewModel
     )
+
 }
 
 @Composable
@@ -35,6 +36,7 @@ fun WiFiP2PHotspotNavHost(
                 navController = navController,
                 hotspotViewModel = hotspotViewModel
             )
+
         }
         composable("settings_screen") {
             SettingsScreen(

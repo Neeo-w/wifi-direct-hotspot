@@ -5,22 +5,15 @@ import android.annotation.SuppressLint
 import android.app.Application
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
-import android.net.ConnectivityManager
-import android.net.Network
-import android.net.NetworkCapabilities
-import android.net.NetworkRequest
-import android.net.TrafficStats
+import android.net.MacAddress
 import android.net.Uri
 import android.net.wifi.WifiManager
+import android.net.wifi.WpsInfo
 import android.net.wifi.p2p.WifiP2pConfig
 import android.net.wifi.p2p.WifiP2pDevice
 import android.net.wifi.p2p.WifiP2pManager
-import android.os.BatteryManager
 import android.os.Build
 import android.os.Looper
-import android.service.controls.ControlsProviderService.TAG
-import androidx.annotation.RequiresApi
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.contentcapture.ContentCaptureManager.Companion.isEnabled
 import androidx.datastore.core.DataStore
@@ -28,19 +21,17 @@ import androidx.datastore.preferences.core.*
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.wifip2photspot.DeviceInfo
-
-
-import com.github.mikephil.charting.data.Entry
+import com.example.wifip2photspot.HttpProxyServer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import timber.log.Timber
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
 
 class HotspotViewModel(
     application: Context,
@@ -50,21 +41,22 @@ class HotspotViewModel(
     companion object {
         val SSID_KEY = stringPreferencesKey("ssid")
         val PASSWORD_KEY = stringPreferencesKey("password")
+        private val SELECTED_BAND_KEY = stringPreferencesKey("selected_band")
         val AUTO_SHUTDOWN_ENABLED_KEY = booleanPreferencesKey("auto_shutdown_enabled")
         val IDLE_TIMEOUT_MINUTES_KEY = intPreferencesKey("idle_timeout_minutes")
         private val BLOCKED_MAC_ADDRESSES_KEY = stringSetPreferencesKey("blocked_mac_addresses")
         private val DEVICE_ALIAS_KEY = stringPreferencesKey("device_aliases")
         private val WIFI_LOCK_ENABLED_KEY = booleanPreferencesKey("wifi_lock_enabled")
         private val _deviceAliases = MutableStateFlow<Map<String, String>>(emptyMap())
-        val BIND_TO_MOBILE_DATA_KEY = booleanPreferencesKey("bind_to_mobile_data") // New Key
+        private const val DEFAULT_PROXY_PORT = 8080
+        private const val DEFAULT_PROXY_IP = "192.168.49.1"
     }
 
     //     ----- Wi-Fi P2P Manager and Channel -----
-    private val wifiManager: WifiP2pManager =
+    private val wifiP2pManager: WifiP2pManager =
         application.getSystemService(Context.WIFI_P2P_SERVICE) as WifiP2pManager
     private val channel: WifiP2pManager.Channel =
-        wifiManager.initialize(application, Looper.getMainLooper(), null)
-
+        wifiP2pManager.initialize(application, Looper.getMainLooper(), null)
 
     // ----- StateFlows for UI State -----
     private val _ssid = MutableStateFlow("TetherGuard")
@@ -76,6 +68,7 @@ class HotspotViewModel(
     private val _selectedBand = MutableStateFlow("Auto")
     val selectedBand: StateFlow<String> = _selectedBand.asStateFlow()
 
+
     private val _isWifiP2pEnabled = MutableStateFlow(false)
 
     private val _isHotspotEnabled = MutableStateFlow(false)
@@ -84,76 +77,37 @@ class HotspotViewModel(
     private val _isProcessing = MutableStateFlow(false)
     val isProcessing: StateFlow<Boolean> = _isProcessing.asStateFlow()
 
-    private val _uploadSpeed = MutableStateFlow(0) // in kbps
-    val uploadSpeed: StateFlow<Int> = _uploadSpeed.asStateFlow()
-
-    private val _downloadSpeed = MutableStateFlow(0) // in kbps
-    val downloadSpeed: StateFlow<Int> = _downloadSpeed.asStateFlow()
-
-    private var previousTxBytes = TrafficStats.getTotalTxBytes()
-    private var previousRxBytes = TrafficStats.getTotalRxBytes()
-
-    private var sessionStartRxBytes = 0L
-    private var sessionStartTxBytes = 0L
-
 
     // Dark Theme State
     private val _isDarkTheme = MutableStateFlow(false)
     val isDarkTheme: StateFlow<Boolean> = _isDarkTheme.asStateFlow()
-
-
+    fun updateTheme(isDark: Boolean) {
+        _isDarkTheme.value = isDark
+        // Save to DataStore if needed
+    }
     // ----- Log Entries -----
     private val _logEntries = MutableStateFlow<List<String>>(emptyList())
     val logEntries: StateFlow<List<String>> = _logEntries.asStateFlow()
-
     // ----- UI Events -----
     private val _eventFlow = MutableSharedFlow<UiEvent>()
-    val eventFlow: SharedFlow<UiEvent> = _eventFlow.asSharedFlow()
-
     // ----- Connected Devices -----
     private val _connectedDevices = MutableStateFlow<List<WifiP2pDevice>>(emptyList())
     val connectedDevices: StateFlow<List<WifiP2pDevice>> = _connectedDevices.asStateFlow()
     private val _connectedDeviceInfos = MutableStateFlow<List<DeviceInfo>>(emptyList())
     val connectedDeviceInfos: StateFlow<List<DeviceInfo>> = _connectedDeviceInfos.asStateFlow()
 
-
-    // ----- StateFlows and Variables -----
-    private val _bindToMobileData = MutableStateFlow(false)
-
-
-
     // ----- Sealed Class for UI Events -----
     sealed class UiEvent {
         data class ShowToast(val message: String) : UiEvent()
-        data class ShowSnackbar(val message: String) : UiEvent()
-        data object StartProxyService : UiEvent()
-        data object StopProxyService : UiEvent()
     }
-
-
     // Add a new property for blocked devices
     private val _blockedMacAddresses = MutableStateFlow<Set<String>>(emptySet())
-
     private val _blockedDeviceInfos = MutableStateFlow<List<DeviceInfo>>(emptyList())
     val blockedDeviceInfos: StateFlow<List<DeviceInfo>> = _blockedDeviceInfos.asStateFlow()
-
-
-    private val _uploadSpeedEntries = MutableStateFlow<List<Entry>>(emptyList())
-
-    private val _downloadSpeedEntries = MutableStateFlow<List<Entry>>(emptyList())
-
-    // Variables to store current speeds in Kbps
-    private val _uploadSpeedKbps = MutableStateFlow(0f)
-
-    private val _downloadSpeedKbps = MutableStateFlow(0f)
-
     //battery level
     private val _batteryLevel = MutableStateFlow(100)
     val batteryLevel: StateFlow<Int> = _batteryLevel.asStateFlow()
-    private val _networkQuality = MutableStateFlow("Good")
     private val _isIdle = MutableStateFlow(false)
-    private val idleThresholdBytesPerSecond = 100L // Define your threshold
-    private var lastTotalBytes: Long = 0L
 
     // Idle Settings State
     private val _autoShutdownEnabled = MutableStateFlow(false)
@@ -173,23 +127,38 @@ class HotspotViewModel(
     private val _wifiLockEnabled = MutableStateFlow(false)
     val wifiLockEnabled: StateFlow<Boolean> = _wifiLockEnabled.asStateFlow()
 
+    private val _groupInfo = MutableStateFlow<Pair<String, String>?>(null)
+    val groupInfo: StateFlow<Pair<String, String>?> = _groupInfo
+
+    private val _isGroupOwner = MutableStateFlow(false)
+    val isGroupOwner: StateFlow<Boolean> = _isGroupOwner.asStateFlow()
+
+    private val _connectionStatus = MutableStateFlow("Disconnected")
+    val connectionStatus: StateFlow<String> = _connectionStatus.asStateFlow()
+
+    // ----- HTTP Proxy Server -----
+    private var proxyServer: HttpProxyServer? = null
+
+    private val _proxyStatus = MutableStateFlow("Stopped")
+    val proxyStatus: StateFlow<String> = _proxyStatus.asStateFlow()
+
+    private var proxyPort = DEFAULT_PROXY_PORT
+    private var proxyIp = DEFAULT_PROXY_IP
+
+    // Flag to prevent multiple starts/stops
+    private val isProxyRunning = AtomicBoolean(false)
+
 
     init {
         viewModelScope.launch {
-            dataStore.data
-                .catch { exception ->
-                    if (exception is IOException) {
-                        emit(emptyPreferences())
-                    } else {
-                        throw exception
-                    }
-                }
-                .collect { preferences ->
-                    val newSSID = preferences[SSID_KEY] ?: "TetherGuard"
-                    val newPassword = preferences[PASSWORD_KEY] ?: "00000000"
-                    _ssid.value = newSSID
-                    _password.value = newPassword
-                }
+            dataStore.data.catch { exception ->
+                if (exception is IOException) emit(emptyPreferences())
+                else throw exception
+            }.collect { preferences ->
+                _ssid.value = preferences[SSID_KEY] ?: "TetherGuard"
+                _password.value = preferences[PASSWORD_KEY] ?: "00000000"
+                _selectedBand.value = preferences[SELECTED_BAND_KEY] ?: "Auto"
+            }
         }
 
         // Load other preferences
@@ -198,40 +167,6 @@ class HotspotViewModel(
                 _autoShutdownEnabled.value = preferences[AUTO_SHUTDOWN_ENABLED_KEY] ?: false
                 _idleTimeoutMinutes.value = preferences[IDLE_TIMEOUT_MINUTES_KEY] ?: 10
                 _wifiLockEnabled.value = preferences[WIFI_LOCK_ENABLED_KEY] ?: false
-                _bindToMobileData.value = preferences[BIND_TO_MOBILE_DATA_KEY] ?: false
-            }
-        }
-        // ----- Start Monitoring Network Speeds -----
-        viewModelScope.launch {
-            var time = 0f
-            while (true) {
-                delay(1000) // Update every second
-                val currentTxBytes = TrafficStats.getTotalTxBytes()
-                val currentRxBytes = TrafficStats.getTotalRxBytes()
-
-                val txBytesDiff = currentTxBytes - previousTxBytes
-                val rxBytesDiff = currentRxBytes - previousRxBytes
-
-                previousTxBytes = currentTxBytes
-                previousRxBytes = currentRxBytes
-
-                // Convert bytes to kilobits per second (kbps)
-                val uploadSpeedKbps = (txBytesDiff * 8) / 1000
-                val downloadSpeedKbps = (rxBytesDiff * 8) / 1000
-
-                _uploadSpeed.value = uploadSpeedKbps.toInt()
-                _downloadSpeed.value = downloadSpeedKbps.toInt()
-                // Update entries
-                _uploadSpeedEntries.value += Entry(time, uploadSpeedKbps.toFloat())
-                _downloadSpeedEntries.value += Entry(time, downloadSpeedKbps.toFloat())
-                time += 1f
-
-                // Limit the number of entries to, e.g., 60
-                if (_uploadSpeedEntries.value.size > 60) {
-                    _uploadSpeedEntries.value = _uploadSpeedEntries.value.drop(1)
-                    _downloadSpeedEntries.value = _downloadSpeedEntries.value.drop(1)
-                }
-
             }
         }
         // Load blocked devices
@@ -249,52 +184,7 @@ class HotspotViewModel(
                 _deviceAliases.value = Json.decodeFromString(aliasesJson)
             }
         }
-
-        monitorNetworkSpeeds()
-        startBatteryMonitoring()
-        startNetworkMonitoring()
     }
-    ///////////////////////////////////////////////////////
-    @Suppress("EXPERIMENTAL_API_USAGE")
-    private fun monitorNetworkSpeeds() {
-        viewModelScope.launch {
-            while (true) {
-                delay(1000L)
-
-                val currentRxBytes = TrafficStats.getTotalRxBytes()
-                val currentTxBytes = TrafficStats.getTotalTxBytes()
-
-                // Calculate the difference in bytes over the last second
-                val rxBytes = currentRxBytes - previousRxBytes
-                val txBytes = currentTxBytes - previousTxBytes
-
-                // Update previous bytes for next calculation
-                previousRxBytes = currentRxBytes
-                previousTxBytes = currentTxBytes
-
-                // Convert bytes to kilobits per second (Kbps)
-                val currentDownloadSpeedKbps = (rxBytes * 8) / 1000f
-                val currentUploadSpeedKbps = (txBytes * 8) / 1000f
-
-                // Update the StateFlows
-                _downloadSpeedKbps.value = currentDownloadSpeedKbps
-                _uploadSpeedKbps.value = currentUploadSpeedKbps
-
-                // Update entries for the graph
-                val time = (System.currentTimeMillis() / 1000f) // Time in seconds
-
-                _downloadSpeedEntries.value += Entry(time, currentDownloadSpeedKbps)
-                _uploadSpeedEntries.value += Entry(time, currentUploadSpeedKbps)
-
-                // Limit the number of entries to, e.g., 60
-                if (_downloadSpeedEntries.value.size > 60) {
-                    _downloadSpeedEntries.value = _downloadSpeedEntries.value.drop(1)
-                    _uploadSpeedEntries.value = _uploadSpeedEntries.value.drop(1)
-                }
-            }
-        }
-    }
-
     // ----- Function to Handle BroadcastReceiver Calls -----
     fun onGroupOwnerChanged(isGroupOwner: Boolean) {
         viewModelScope.launch {
@@ -308,12 +198,6 @@ class HotspotViewModel(
             }
         }
     }
-    fun updateLog(message: String) {
-        viewModelScope.launch {
-            _logEntries.value += message
-        }
-    }
-
     // ----- Function to Handle Device List Changes -----
     @SuppressLint("TimberArgCount")
     fun onDevicesChanged(deviceList: Collection<WifiP2pDevice>) {
@@ -334,20 +218,6 @@ class HotspotViewModel(
             )
         }
     }
-    fun onDisconnected() {
-        viewModelScope.launch {
-            _isHotspotEnabled.value = false
-            updateLog("Group disbanded. Stopping SSH Server and VPN.")
-        }
-    }
-    // ----- Lifecycle Management -----
-    override fun onCleared() {
-        super.onCleared()
-        releaseWifiLock()
-        onButtonStopTapped()
-        updateLog("SSH Server and Proxy Server cleaned up.")
-    }
-
 
     // ----- Function to Set Wi-Fi P2P Enabled State -----
     @OptIn(ExperimentalComposeUiApi::class)
@@ -357,9 +227,14 @@ class HotspotViewModel(
     }
 
     // ----- Function to Update Selected Band -----
+// ----- Update Selected Band -----
     fun updateSelectedBand(newBand: String) {
         viewModelScope.launch {
+            dataStore.edit { preferences ->
+                preferences[SELECTED_BAND_KEY] = newBand
+            }
             _selectedBand.value = newBand
+            updateLog("Selected band updated to: $newBand")
         }
     }
 
@@ -385,45 +260,21 @@ class HotspotViewModel(
         }
     }
 
-    // ----- Function to Handle Start Hotspot Button Tapped -----
-    fun onButtonStartTapped(
-        ssidInput: String,
-        passwordInput: String,
-        selectedBand: String
-    ) {
-        onButtonStopTapped()
+    // ----- Start Hotspot -----
+    fun onButtonStartTapped(ssidInput: String, passwordInput: String, selectedBand: String) {
+        onButtonStopTapped() // Stop existing hotspot before creating a new one
+
         viewModelScope.launch {
-            if (!_isWifiP2pEnabled.value) {
-                updateLog("Error: Cannot start hotspot. Wi-Fi P2P is not enabled.")
-                _eventFlow.emit(UiEvent.ShowToast("Wi-Fi P2P is not enabled."))
-                _isHotspotEnabled.value = false
+            _isProcessing.value = true
+
+            val ssid = "DIRECT-TG-${ssidInput.trim()}"
+            val password = passwordInput.trim()
+
+            if (ssid.isEmpty() || password.length !in 8..63) {
                 _isProcessing.value = false
+                updateLog("Invalid SSID or password.")
                 return@launch
             }
-            _isProcessing.value = true // Start processing
-
-            val ssidTrimmed = ssidInput.trim()
-            val passwordTrimmed = passwordInput.trim()
-
-            // ----- Input Validation -----
-            if (ssidTrimmed.isEmpty()) {
-                updateLog("Error: SSID cannot be empty.")
-                _eventFlow.emit(UiEvent.ShowToast("SSID cannot be empty."))
-                _isHotspotEnabled.value = false
-                _isProcessing.value = false
-                return@launch
-            }
-
-            if (passwordTrimmed.length !in 8..63) {
-                updateLog("Error: The length of a passphrase must be between 8 and 63.")
-                _eventFlow.emit(UiEvent.ShowToast("Password must be between 8 and 63 characters."))
-                _isHotspotEnabled.value = false
-                _isProcessing.value = false
-                return@launch
-            }
-
-            val ssid = "DIRECT-hs-$ssidTrimmed"
-
             val band = when (selectedBand) {
                 "2.4GHz" -> WifiP2pConfig.GROUP_OWNER_BAND_2GHZ
                 "5GHz" -> WifiP2pConfig.GROUP_OWNER_BAND_5GHZ
@@ -432,190 +283,192 @@ class HotspotViewModel(
 
             val config = WifiP2pConfig.Builder()
                 .setNetworkName(ssid)
-                .setPassphrase(passwordTrimmed)
+                .setPassphrase(password)
                 .enablePersistentMode(false)
+                .setGroupOperatingBand(WifiP2pConfig.GROUP_OWNER_BAND_AUTO)
                 .setGroupOperatingBand(band)
                 .build()
 
-            try {
-                wifiManager.createGroup(
-                    channel,
-                    config,
-                    object : WifiP2pManager.ActionListener {
+            wifiP2pManager.requestGroupInfo(channel) { group ->
+                if (group != null) {
+                    wifiP2pManager.removeGroup(channel, object : WifiP2pManager.ActionListener {
                         override fun onSuccess() {
-                            viewModelScope.launch {
-                                updateLog("Hotspot started successfully.")
-                                _isHotspotEnabled.value = true
-                                updateLog("------------------- Hotspot Info -------------------")
-                                updateLog("SSID: $ssidTrimmed")
-                                updateLog("Password: $passwordTrimmed")
-                                val bandStr = when (band) {
-                                    WifiP2pConfig.GROUP_OWNER_BAND_2GHZ -> "2.4GHz"
-                                    WifiP2pConfig.GROUP_OWNER_BAND_5GHZ -> "5GHz"
-                                    else -> "Auto"
-                                }
-                                updateLog("Band: $bandStr")
-                                updateLog("---------------------------------------------------")
-                                _isProcessing.value = false
-                                _eventFlow.emit(UiEvent.ShowToast("Hotspot started successfully."))
-                                // Acquire Wi-Fi Lock if enabled
-                                acquireWifiLock()
-
-                                // Start Idle Monitoring
-                                startIdleMonitoring()
-
-                                // Start Data Usage Tracking
-                                startDataUsageTracking()
-
-                                // Start Battery Monitoring
-                                startBatteryMonitoring()
-
-                                // Start Network Monitoring
-                                startNetworkMonitoring()
-                            }
+                            updateLog("Existing group removed. Creating new group...")
+                            createNewGroup(config)
                         }
 
                         override fun onFailure(reason: Int) {
-                            val reasonStr = when (reason) {
-                                WifiP2pManager.ERROR -> "General error"
-                                WifiP2pManager.P2P_UNSUPPORTED -> "P2P Unsupported"
-                                WifiP2pManager.BUSY -> "System is busy"
-                                else -> "Unknown error"
-                            }
-                            viewModelScope.launch {
-                                updateLog("Failed to start hotspot. Reason: $reasonStr")
-                                _isHotspotEnabled.value = false
-                                _isProcessing.value = false
-                                _eventFlow.emit(UiEvent.ShowToast("Failed to start hotspot: $reasonStr"))
-                            }
+                            handleGroupFailure(reason, "remove")
+                            updateLog("Failed to remove existing group. Creating new group...")
+                            retryGroupRemoval(config)
                         }
                     })
-            } catch (e: Exception) {
-                viewModelScope.launch {
-                    updateLog("Exception: ${e.message}")
-                    _isHotspotEnabled.value = false
-                    _isProcessing.value = false
-                    _eventFlow.emit(UiEvent.ShowToast("Exception occurred: ${e.message}"))
+                } else {
+                    createNewGroup(config)
                 }
             }
         }
     }
+    private fun createNewGroup(config: WifiP2pConfig) {
+        wifiP2pManager.createGroup(channel, config, object : WifiP2pManager.ActionListener {
+            override fun onSuccess() {
+                viewModelScope.launch {
+                    _isHotspotEnabled.value = true
+                    _isProcessing.value = false
+                    updateLog("Hotspot started successfully: SSID=${config.networkName}")
+                    requestGroupInfo()
 
-    // ----- Function to Stop the Hotspot -----
+                    // Acquire Wi-Fi Lock after hotspot starts successfully
+                    acquireWifiLock()
+
+                    // Start idle monitoring after hotspot is active
+                    startIdleMonitoring()
+                    updateLog("Idle monitoring started.")
+
+                    // Start HTTP Proxy Server
+                    startHttpProxy()
+                }
+            }
+
+            override fun onFailure(reason: Int) {
+                handleGroupFailure(reason, "create")
+                retryGroupCreation(config)
+            }
+        })
+    }
+
+    private fun handleGroupFailure(reason: Int, action: String) {
+        val reasonMessage = when (reason) {
+            WifiP2pManager.BUSY -> "Framework is busy"
+            WifiP2pManager.ERROR -> "Internal error"
+            WifiP2pManager.P2P_UNSUPPORTED -> "P2P unsupported"
+            else -> "Unknown error"
+        }
+        updateLog("Failed to $action group: $reasonMessage")
+        _isProcessing.value = false
+    }
+
+    private fun requestGroupInfo() {
+        wifiP2pManager.requestGroupInfo(channel) { group ->
+            if (group != null) {
+                _groupInfo.value = Pair(group.networkName, group.passphrase)
+                _isGroupOwner.value = group.isGroupOwner
+                updateLog("Group Info: SSID=${group.networkName}, Passphrase=${group.passphrase}")
+            } else {
+                _groupInfo.value = null
+                updateLog("No group info available.")
+            }
+        }
+    }
+
+    private fun retryGroupCreation(config: WifiP2pConfig) {
+        viewModelScope.launch {
+            delay(2000L) // Wait 2 seconds before retrying
+            createNewGroup(config)
+        }
+    }
+
+    private fun retryGroupRemoval(config: WifiP2pConfig?) {
+        viewModelScope.launch {
+            delay(2000L) // Wait 2 seconds before retrying
+            wifiP2pManager.removeGroup(channel, object : WifiP2pManager.ActionListener {
+                override fun onSuccess() {
+                    updateLog("Group removed after retry. Creating new group...")
+                    config?.let { createNewGroup(it) }
+                }
+
+                override fun onFailure(reason: Int) {
+                    updateLog("Failed to remove group after retry: ${getErrorReason(reason)}")
+                    _isProcessing.value = false
+                }
+            })
+        }
+    }
+
+    // ----- Stop Hotspot -----
     fun onButtonStopTapped() {
-        viewModelScope.launch {
-            if (!_isHotspotEnabled.value) {
-                updateLog("Error: Hotspot is not enabled.")
-                _eventFlow.emit(UiEvent.ShowToast("Hotspot is not enabled."))
-                return@launch
-            }
-
-            _isProcessing.value = true // Start processing
-
-            try {
-                suspendCancellableCoroutine {
-                    wifiManager.removeGroup(channel, object : WifiP2pManager.ActionListener {
-                        @RequiresApi(Build.VERSION_CODES.R)
-                        override fun onSuccess() {
-                            viewModelScope.launch {
-                                updateLog("Hotspot stopped successfully.")
-                                _isHotspotEnabled.value = false
-                                _connectedDevices.value = emptyList()
-                                _isProcessing.value = false
-                                _eventFlow.emit(UiEvent.ShowToast("Hotspot stopped successfully."))
-
-                                Timber.tag(TAG).d("Wi-Fi Direct group removed successfully.")
-
-                                // Release Wi-Fi Lock if acquired
-                                releaseWifiLock()
-
-                                // Reset Idle Monitoring
-                                _remainingIdleTime.value = 0L
-                            }
-                        }
-                        override fun onFailure(reason: Int) {
-                            val reasonStr = when (reason) {
-                                WifiP2pManager.ERROR -> "General error"
-                                WifiP2pManager.P2P_UNSUPPORTED -> "P2P Unsupported"
-                                WifiP2pManager.BUSY -> "System is busy"
-                                else -> "Unknown error"
-                            }
-                            viewModelScope.launch {
-                                updateLog("Failed to stop hotspot. Reason: $reasonStr")
-                                _isHotspotEnabled.value = true // Assuming it was enabled
-                                _isProcessing.value = false
-                                _eventFlow.emit(UiEvent.ShowToast("Failed to stop hotspot: $reasonStr"))
-                            }
-                        }
-                    })
-                }
-
-            } catch (e: Exception) {
-                viewModelScope.launch {
-                    updateLog("Exception: ${e.message}")
-                    _isHotspotEnabled.value = true // Assuming it was enabled
-                    _isProcessing.value = false
-                    _eventFlow.emit(UiEvent.ShowToast("Exception occurred: ${e.message}"))
-                }
-            }
-        }
-    }
-
-    //*****************************************************Fine****************************************
-
-    fun startNetworkMonitoring() {
-        val connectivityManager =
-            getApplication<Application>().getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-
-        val networkCallback = object : ConnectivityManager.NetworkCallback() {
-            override fun onCapabilitiesChanged(
-                network: Network,
-                networkCapabilities: NetworkCapabilities
-            ) {
-                val linkDownstreamBandwidthKbps = networkCapabilities.linkDownstreamBandwidthKbps
-                networkCapabilities.linkUpstreamBandwidthKbps
-
-                val quality = when {
-                    linkDownstreamBandwidthKbps < 150 -> "Poor"
-                    linkDownstreamBandwidthKbps < 550 -> "Moderate"
-                    linkDownstreamBandwidthKbps < 2000 -> "Good"
-                    else -> "Excellent"
-                }
-                _networkQuality.value = quality
-            }
-        }
-
-        val networkRequest = NetworkRequest.Builder()
-            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
-            .build()
-
-        connectivityManager.registerNetworkCallback(networkRequest, networkCallback)
-    }
-
-    fun startBatteryMonitoring() {
-        val batteryManager =
-            getApplication<Application>().getSystemService(Context.BATTERY_SERVICE) as BatteryManager
-        val intentFilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
-        val batteryStatus = getApplication<Application>().registerReceiver(null, intentFilter)
-        batteryStatus?.let {
-            val level = it.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
-            val scale = it.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
-            val batteryPct = level * 100 / scale.toFloat()
-            _batteryLevel.value = batteryPct.toInt()
-        }
+        if (!_isHotspotEnabled.value) return
 
         viewModelScope.launch {
-            while (isHotspotEnabled.value) {
-                delay(60000) // Check every minute
-                val level = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-                _batteryLevel.value = level
+            _isProcessing.value = true
+            wifiP2pManager.removeGroup(channel, object : WifiP2pManager.ActionListener {
+                override fun onSuccess() {
+                    viewModelScope.launch {
+                        clearHotspotState()
+                        updateLog("Hotspot stopped successfully.")
 
-                if (level <= 15) {
-                    withContext(Dispatchers.Main) {
-                        _eventFlow.emit(UiEvent.ShowToast("Battery low ($level%). Consider turning off the hotspot to save power."))
+                        // Release Wi-Fi Lock after stopping the hotspot
+                        releaseWifiLock()
+                        // Stop HTTP Proxy Server
+                        stopHttpProxy()
                     }
                 }
-            }
+                override fun onFailure(reason: Int) {
+                    handleGroupFailure(reason, "stop")
+                    retryGroupRemoval(null)
+                }
+            })
+        }
+    }
+
+    private fun startHttpProxy() {
+        try {
+            proxyServer = HttpProxyServer(proxyPort, proxyIp)
+            proxyServer?.start()
+            _proxyStatus.value = "Running on $proxyIp:$proxyPort"
+            updateLog("HTTP Proxy started on $proxyIp:$proxyPort")
+        } catch (e: Exception) {
+            _proxyStatus.value = "Failed to start"
+            updateLog("Failed to start HTTP Proxy: ${e.message}")
+        }
+    }
+
+    private fun stopHttpProxy() {
+        try {
+            proxyServer?.stop()
+            proxyServer = null
+            _proxyStatus.value = "Stopped"
+            updateLog("HTTP Proxy stopped.")
+        } catch (e: Exception) {
+            updateLog("Error stopping HTTP Proxy: ${e.message}")
+        }
+    }
+
+
+    private fun getErrorReason(reason: Int): String {
+        return when (reason) {
+            WifiP2pManager.BUSY -> "Framework is busy"
+            WifiP2pManager.ERROR -> "Internal error"
+            WifiP2pManager.P2P_UNSUPPORTED -> "P2P unsupported"
+            WifiP2pManager.NO_SERVICE_REQUESTS -> "No service requests"
+            else -> "Unknown error code: $reason"
+        }
+    }
+
+    private fun clearHotspotState() {
+        _isHotspotEnabled.value = false
+        _isGroupOwner.value = false
+        _groupInfo.value = null
+        _connectedDevices.value = emptyList()
+        _isProcessing.value = false
+    }
+    // ----- Handle Disconnection -----
+    fun onDisconnected() {
+        clearHotspotState()
+        updateLog("Group disbanded. All devices disconnected.")
+    }
+    // ----- Lifecycle Management -----
+    override fun onCleared() {
+        super.onCleared()
+        releaseWifiLock()
+        onButtonStopTapped()
+        updateLog("ViewModel cleared. Resources released.")
+    }
+
+    // ----- Logging Utility -----
+    fun updateLog(message: String) {
+        viewModelScope.launch {
+            _logEntries.value += message
         }
     }
 
@@ -649,55 +502,39 @@ class HotspotViewModel(
         }
     }
 
+    // ----- Wi-Fi Lock -----
     fun acquireWifiLock() {
-        if (_wifiLockEnabled.value) {
-            val wifiManager =
-                getApplication<Application>().getSystemService(Context.WIFI_SERVICE) as WifiManager
-            wifiLock = wifiManager.createWifiLock(
-                WifiManager.WIFI_MODE_FULL_HIGH_PERF,
-                "WiFiP2PHotspotLock"
-            )
-            wifiLock?.acquire()
+        if (wifiLock == null) {
+            val wifiManager = getApplication<Application>().getSystemService(Context.WIFI_SERVICE) as WifiManager
+            wifiLock = wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "WiFiP2PHotspotLock")
         }
+        wifiLock?.takeIf { !it.isHeld }?.acquire()
     }
 
     fun releaseWifiLock() {
-        wifiLock?.let {
-            if (it.isHeld) {
-                it.release()
-            }
-        }
+        wifiLock?.takeIf { it.isHeld }?.release()
+        wifiLock = null
     }
 
-    // ---------- Idle Monitoring Logic ----------
     fun startIdleMonitoring() {
         viewModelScope.launch {
-            var idleStartTime = System.currentTimeMillis()
-            lastTotalBytes = 0L // Initialize lastTotalBytes
+            var idleStartTime = System.currentTimeMillis() // Track when the hotspot becomes idle
             while (isHotspotEnabled.value && autoShutdownEnabled.value) {
-                delay(1000L) // Update every second
-                val connectedDevices = _connectedDevices.value
-                val (rxBytes, txBytes) = getSessionDataUsage()
-                val currentTotalBytes = rxBytes + txBytes
-                val dataUsageInInterval: Long = if (lastTotalBytes == 0L) {
-                    0L // No previous data to compare
-                } else {
-                    currentTotalBytes - lastTotalBytes
-                }
-                lastTotalBytes = currentTotalBytes
+                delay(1000L) // Check every second
+                val connectedDevices = _connectedDevices.value // Get the current list of connected devices
 
-                val dataUsagePerSecond = dataUsageInInterval / (1000L) // Since we delay for 1000ms
-
-                _isIdle.value =
-                    connectedDevices.isEmpty() || dataUsagePerSecond < idleThresholdBytesPerSecond
+                // Determine if the hotspot is idle (no connected devices)
+                _isIdle.value = connectedDevices.isEmpty()
 
                 if (_isIdle.value && _autoShutdownEnabled.value) {
                     val elapsedIdleTime = System.currentTimeMillis() - idleStartTime
                     val totalIdleTime = _idleTimeoutMinutes.value * 60 * 1000L
+
+                    // Update the remaining idle time
                     _remainingIdleTime.value = totalIdleTime - elapsedIdleTime
 
+                    // If idle time exceeds the allowed timeout, stop the hotspot
                     if (_remainingIdleTime.value <= 0L) {
-                        // Idle time exceeded, turn off hotspot
                         withContext(Dispatchers.Main) {
                             onButtonStopTapped()
                             _eventFlow.emit(UiEvent.ShowToast("Hotspot turned off due to inactivity"))
@@ -705,6 +542,7 @@ class HotspotViewModel(
                         break
                     }
                 } else {
+                    // Reset idle start time if activity is detected
                     idleStartTime = System.currentTimeMillis()
                     _remainingIdleTime.value = _idleTimeoutMinutes.value * 60 * 1000L
                 }
@@ -714,52 +552,6 @@ class HotspotViewModel(
         }
     }
 
-    // Function to get session data usage (implementation depends on previous steps)
-    private fun getSessionDataUsage(): Pair<Long, Long> {
-        val rxBytes = TrafficStats.getTotalRxBytes()
-        val txBytes = TrafficStats.getTotalTxBytes()
-        return Pair(rxBytes, txBytes)
-    }
-
-    fun contactSupport() {
-        val intent = Intent(Intent.ACTION_SENDTO).apply {
-            data = Uri.parse("mailto:")
-            putExtra(Intent.EXTRA_EMAIL, arrayOf("2024@example.com"))
-            putExtra(Intent.EXTRA_SUBJECT, "Support Request")
-        }
-        intent.resolveActivity(getApplication<Application>().packageManager)?.let {
-            getApplication<Application>().startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        } ?: run {
-            viewModelScope.launch {
-                _eventFlow.emit(UiEvent.ShowToast("No email client available"))
-            }
-        }
-    }
-
-    fun submitFeedback(feedback: String) {
-        // For example, open an email intent
-        val intent = Intent(Intent.ACTION_SENDTO).apply {
-            data = Uri.parse("mailto:")
-            putExtra(Intent.EXTRA_EMAIL, arrayOf("support@example.com"))
-            putExtra(Intent.EXTRA_SUBJECT, "App Feedback")
-            putExtra(Intent.EXTRA_TEXT, feedback)
-        }
-        intent.resolveActivity(getApplication<Application>().packageManager)?.let {
-            getApplication<Application>().startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        } ?: run {
-            // Handle the case where no email client is available
-            viewModelScope.launch {
-                _eventFlow.emit(UiEvent.ShowToast("No email client available"))
-            }
-        }
-    }
-
-
-
-    fun startDataUsageTracking() {
-        sessionStartRxBytes = TrafficStats.getTotalRxBytes()
-        sessionStartTxBytes = TrafficStats.getTotalTxBytes()
-    }
 
     // Function to block a device
     fun blockDevice(deviceAddress: String) {
@@ -820,28 +612,52 @@ class HotspotViewModel(
     }
 
     fun disconnectDevice(deviceInfo: DeviceInfo) {
-        // Wi-Fi P2P does not provide a direct way to disconnect a single device.
-        // However, if you are the group owner, you can remove the group to disconnect all devices
-        // and then reform the group. Alternatively, you can attempt to cancel the connection.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            try {
+                // Convert the string MAC address to a MacAddress object for API 33+
+                val macAddress = MacAddress.fromString(deviceInfo.device.deviceAddress)
 
-        // For illustration purposes, we'll attempt to remove the group.
-        wifiManager.removeGroup(channel, object : WifiP2pManager.ActionListener {
+                // Create the Wi-Fi P2P configuration for the specific device
+                val config = WifiP2pConfig.Builder()
+                    .setDeviceAddress(macAddress)
+                    .build()
+
+                cancelConnection(config, deviceInfo)
+            } catch (e: IllegalArgumentException) {
+                updateLog("Invalid MAC address format for device: ${deviceInfo.device.deviceAddress}")
+            }
+        } else {
+            // For API levels below 33, use the WifiP2pConfig constructor
+            val config = WifiP2pConfig().apply {
+                deviceAddress = deviceInfo.device.deviceAddress
+                wps.setup = WpsInfo.PBC // Set WPS setup method
+            }
+
+            cancelConnection(config, deviceInfo)
+        }
+    }
+    private fun cancelConnection(config: WifiP2pConfig, deviceInfo: DeviceInfo) {
+        wifiP2pManager.cancelConnect(channel, object : WifiP2pManager.ActionListener {
             override fun onSuccess() {
-                updateLog("Disconnected device: ${deviceInfo.device.deviceName}")
-                // Remove the device from the connected devices list
+                updateLog("Successfully disconnected device: ${deviceInfo.device.deviceName}")
+
+                // Update connected devices list by removing the disconnected device
                 _connectedDeviceInfos.value = _connectedDeviceInfos.value.filterNot {
                     it.device.deviceAddress == deviceInfo.device.deviceAddress
                 }
-                // Optionally, reinitialize the group to allow other devices to reconnect
-                // This is a workaround due to API limitations
-//                initializeGroup()
             }
-
             override fun onFailure(reason: Int) {
-                updateLog("Failed to disconnect device: ${deviceInfo.device.deviceName}")
+                val reasonStr = when (reason) {
+                    WifiP2pManager.BUSY -> "Framework is busy"
+                    WifiP2pManager.ERROR -> "Internal error"
+                    WifiP2pManager.P2P_UNSUPPORTED -> "P2P unsupported"
+                    else -> "Unknown error"
+                }
+                updateLog("Failed to disconnect device: ${deviceInfo.device.deviceName}. Reason: $reasonStr")
             }
         })
     }
+
 
     //    // Update alias function
     fun updateDeviceAlias(deviceAddress: String, alias: String) {
@@ -867,9 +683,37 @@ class HotspotViewModel(
         }
     }
 
-    fun updateTheme(isDark: Boolean) {
-        _isDarkTheme.value = isDark
-        // Save to DataStore if needed
+
+    fun contactSupport() {
+        val intent = Intent(Intent.ACTION_SENDTO).apply {
+            data = Uri.parse("mailto:")
+            putExtra(Intent.EXTRA_EMAIL, arrayOf("2024@example.com"))
+            putExtra(Intent.EXTRA_SUBJECT, "Support Request")
+        }
+        intent.resolveActivity(getApplication<Application>().packageManager)?.let {
+            getApplication<Application>().startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } ?: run {
+            viewModelScope.launch {
+                _eventFlow.emit(UiEvent.ShowToast("No email client available"))
+            }
+        }
     }
 
+    fun submitFeedback(feedback: String) {
+        // For example, open an email intent
+        val intent = Intent(Intent.ACTION_SENDTO).apply {
+            data = Uri.parse("mailto:")
+            putExtra(Intent.EXTRA_EMAIL, arrayOf("support@example.com"))
+            putExtra(Intent.EXTRA_SUBJECT, "App Feedback")
+            putExtra(Intent.EXTRA_TEXT, feedback)
+        }
+        intent.resolveActivity(getApplication<Application>().packageManager)?.let {
+            getApplication<Application>().startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } ?: run {
+            // Handle the case where no email client is available
+            viewModelScope.launch {
+                _eventFlow.emit(UiEvent.ShowToast("No email client available"))
+            }
+        }
+    }
 }

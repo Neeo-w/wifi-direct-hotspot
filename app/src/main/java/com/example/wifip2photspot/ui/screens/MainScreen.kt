@@ -5,10 +5,13 @@ import android.annotation.SuppressLint
 import android.widget.Toast
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -39,8 +42,7 @@ import timber.log.Timber
 @SuppressLint("StateFlowValueCalledInComposition", "UnrememberedMutableState", "TimberArgCount")
 @Composable
 fun MainScreen(
-    navController: NavHostController,
-    hotspotViewModel: HotspotViewModel
+    navController: NavHostController, hotspotViewModel: HotspotViewModel
 ) {
     val context = LocalContext.current
 
@@ -50,8 +52,6 @@ fun MainScreen(
     // Collect state from ViewModels
     val isHotspotEnabled by hotspotViewModel.isHotspotEnabled.collectAsState()
     val isProcessing by hotspotViewModel.isProcessing.collectAsState()
-    val uploadSpeed by hotspotViewModel.uploadSpeed.collectAsState()
-    val downloadSpeed by hotspotViewModel.downloadSpeed.collectAsState()
     val connectedDevices by hotspotViewModel.connectedDevices.collectAsState()
     val logEntries by hotspotViewModel.logEntries.collectAsState()
     val remainingIdleTime by hotspotViewModel.remainingIdleTime.collectAsState()
@@ -69,6 +69,8 @@ fun MainScreen(
     // Collect the blocked devices from the hotspotViewModel
     val blockedDeviceInfos by hotspotViewModel.blockedDeviceInfos.collectAsState()
     val batteryLevel by hotspotViewModel.batteryLevel.collectAsState()
+    val proxyStatus by hotspotViewModel.proxyStatus.collectAsState()
+
 
     // Update hotspotViewModel when text changes
     LaunchedEffect(ssidFieldState.text) {
@@ -87,149 +89,147 @@ fun MainScreen(
             hotspotViewModel.startIdleMonitoring()
         }
     }
-    // Handle UI Events
-    LaunchedEffect(key1 = true) {
-        hotspotViewModel.eventFlow.collect { event ->
-            when (event) {
-                is HotspotViewModel.UiEvent.ShowToast -> {
-                    Toast.makeText(context, event.message, Toast.LENGTH_SHORT).show()
-                }
-
-                is HotspotViewModel.UiEvent.ShowSnackbar -> {
-                }
-                HotspotViewModel.UiEvent.StartProxyService -> TODO()
-                HotspotViewModel.UiEvent.StopProxyService -> TODO()
-            }
-        }
-    }
     // Scaffold for overall layout
-    Scaffold(
-        topBar = {
-            ImprovedHeader(
-                onSettingsClick = { navController.navigate("settings_screen") },
-            )
-        },
-        content = { paddingValues ->
-            LazyColumn(
-                contentPadding = paddingValues,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp)
-            ) {
-                item {
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
+    Scaffold(topBar = {
+        ImprovedHeader(
+            onSettingsClick = { navController.navigate("settings_screen") },
+        )
+    }, content = { paddingValues ->
+        LazyColumn(
+            contentPadding = paddingValues,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp)
+        ) {
+            item {
+                Spacer(modifier = Modifier.height(16.dp))
+            }
 
-                // Display Idle Countdown if applicable
-                item {
-                    IdleCountdownDisplay(remainingIdleTime = remainingIdleTime)
+            // Display Idle Countdown if applicable
+            item {
+                IdleCountdownDisplay(remainingIdleTime = remainingIdleTime)
 
-                }
+            }
+            item {
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+            // Proxy Status Display
+            if (isHotspotEnabled) {
                 item {
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Proxy Status: $proxyStatus",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(8.dp)
+                    )
                 }
-                // Input Fields and Band Selection
-                if (connectedDeviceInfos.isEmpty()) {
-                    item {
-                        InputFieldsSection(
-                            ssidInput = ssidFieldState,
-                            onSsidChange = { newValue ->
-                                ssidFieldState = newValue
-                            },
-                            passwordInput = passwordFieldState,
-                            onPasswordChange = { newValue ->
-                                passwordFieldState = newValue
-                            },
-                            isHotspotEnabled = isHotspotEnabled
-                        )
-                    }
+            }
+            // Input Fields and Band Selection
+            if (!isHotspotEnabled) {
+                item {
+                    InputFieldsSection(ssidInput = TextFieldValue(ssid),
+                        onSsidChange = { newValue ->
+                            hotspotViewModel.updateSSID(newValue.text)
+                        },
+                        passwordInput = TextFieldValue(password),
+                        onPasswordChange = { newValue ->
+                            hotspotViewModel.updatePassword(newValue.text)
+                        },
+                        isHotspotEnabled = isHotspotEnabled
+                    )
+                }
+            } else {
+                item {
+                    Text(
+                        text = "Hotspot is enabled with SSID: $ssid",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(8.dp)
+                    )
+                }
+            }
+//
+//                    item {
+//                        ConnectionStatusBar(
+//                            uploadSpeed = uploadSpeed,
+//                            downloadSpeed = downloadSpeed,
+//                            totalDownload = downloadSpeed, // Adjust if you have a separate totalDownload
+//                            connectedDevicesCount = connectedDevices.size
+//                        )
+//                    }
+//                    item {
+//                        BatteryStatusSection(batteryLevel = batteryLevel)
+//                    }
+//                    item {
+//                        Spacer(modifier = Modifier.height(16.dp))
+//                    }
+            // Hotspot Control Section
+            item {
+                if (isWifiEnabled(context) && isLocationEnabled(context)) {
+                    HotspotControlSection(isHotspotEnabled = isHotspotEnabled,
+                        isProcessing = isProcessing,
+                        onStartTapped = {
+                            hotspotViewModel.onButtonStartTapped(
+                                ssidInput = ssidFieldState.text.ifBlank { "TetherGuard" },
+                                passwordInput = passwordFieldState.text.ifBlank { "00000000" },
+                                selectedBand = selectedBand,
+                            )
+                        },
+                        onStopTapped = {
+                            hotspotViewModel.onButtonStopTapped()
+                        })
+
                 } else {
-                    item {
-                        ConnectionStatusBar(
-                            uploadSpeed = uploadSpeed,
-                            downloadSpeed = downloadSpeed,
-                            totalDownload = downloadSpeed, // Adjust if you have a separate totalDownload
-                            connectedDevicesCount = connectedDevices.size
-                        )
-                    }
+                    showServiceEnableDialog = true
                 }
-                item {
-                    BatteryStatusSection(batteryLevel = batteryLevel)
-                }
-                item {
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
-                // Hotspot Control Section
-                item {
-                    if (isWifiEnabled(context) && isLocationEnabled(context)) {
-                        HotspotControlSection(
-                            isHotspotEnabled = isHotspotEnabled,
-                            isProcessing = isProcessing,
-                            onStartTapped = {
-                                hotspotViewModel.onButtonStartTapped(
-                                    ssidInput = ssidFieldState.text.ifBlank { "TetherGuard" },
-                                    passwordInput = passwordFieldState.text.ifBlank { "00000000" },
-                                    selectedBand = selectedBand,
-                                )
-                            },
-                            onStopTapped = {
-                                hotspotViewModel.onButtonStopTapped()
-                            }
-                        )
-
-                    } else {
-                        showServiceEnableDialog = true
-                    }
-                }
-                item {
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
-                if (isHotspotEnabled) {
-                    // Connected Devices Section
-                    connectedDevicesSection(
-                        devices = connectedDeviceInfos,
-                        onDeviceAliasChange = { deviceAddress, alias ->
-                            hotspotViewModel.updateDeviceAlias(deviceAddress, alias)
-                        },
-                        onBlockUnblock = { deviceAddress ->
-                            val deviceInfo =
-                                connectedDeviceInfos.find { it.device.deviceAddress == deviceAddress }
-                            if (deviceInfo != null) {
-                                if (deviceInfo.isBlocked) {
-                                    hotspotViewModel.unblockDevice(deviceAddress)
-                                } else {
-                                    hotspotViewModel.blockDevice(deviceAddress)
-                                }
-                            }
-                        },
-                        onDisconnect = { deviceAddress ->
-                            val deviceInfo =
-                                connectedDeviceInfos.find { it.device.deviceAddress == deviceAddress }
-                            if (deviceInfo != null) {
-                                hotspotViewModel.disconnectDevice(deviceInfo)
+            }
+            item {
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+            if (isHotspotEnabled) {
+                // Connected Devices Section
+                connectedDevicesSection(devices = connectedDeviceInfos,
+                    onDeviceAliasChange = { deviceAddress, alias ->
+                        hotspotViewModel.updateDeviceAlias(deviceAddress, alias)
+                    },
+                    onBlockUnblock = { deviceAddress ->
+                        val deviceInfo =
+                            connectedDeviceInfos.find { it.device.deviceAddress == deviceAddress }
+                        if (deviceInfo != null) {
+                            if (deviceInfo.isBlocked) {
+                                hotspotViewModel.unblockDevice(deviceAddress)
+                            } else {
+                                hotspotViewModel.blockDevice(deviceAddress)
                             }
                         }
-                    )
-                    if (blockedDeviceInfos.isNotEmpty()) {
-                        blockedDevicesSection(
-                            devices = blockedDeviceInfos,
-                            onUnblock = { deviceAddress ->
-                                hotspotViewModel.unblockDevice(deviceAddress)
-                            }
-                        )
-                    }
+                    },
+                    onDisconnect = { deviceAddress ->
+                        val deviceInfo =
+                            connectedDeviceInfos.find { it.device.deviceAddress == deviceAddress }
+                        if (deviceInfo != null) {
+                            hotspotViewModel.disconnectDevice(deviceInfo)
+                        }
+                    })
+                if (blockedDeviceInfos.isNotEmpty()) {
+                    blockedDevicesSection(devices = blockedDeviceInfos,
+                        onUnblock = { deviceAddress ->
+                            hotspotViewModel.unblockDevice(deviceAddress)
+                        })
                 }
-                // Display Connected Devices
-                item {
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
-                // Log Section
-                item {
-                    LogSection(logEntries = logEntries)
-                }
-
             }
+            // Display Connected Devices
+            item {
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+            // Log Section
+            item {
+                LogSection(logEntries = logEntries)
+            }
+
         }
-    )
+
+    })
 }
 
