@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.MacAddress
 import android.net.Uri
+import android.net.VpnService
 import android.net.wifi.WifiManager
 import android.net.wifi.WpsInfo
 import android.net.wifi.p2p.WifiP2pConfig
@@ -14,6 +15,7 @@ import android.net.wifi.p2p.WifiP2pDevice
 import android.net.wifi.p2p.WifiP2pManager
 import android.os.Build
 import android.os.Looper
+import android.os.ParcelFileDescriptor
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.contentcapture.ContentCaptureManager.Companion.isEnabled
 import androidx.datastore.core.DataStore
@@ -21,7 +23,7 @@ import androidx.datastore.preferences.core.*
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.wifip2photspot.DeviceInfo
-import com.example.wifip2photspot.HttpProxyServer
+import com.example.wifip2photspot.ProxyServer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -30,6 +32,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import timber.log.Timber
+import com.example.wifip2photspot.MyVpnService
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -51,6 +54,8 @@ class HotspotViewModel(
         private const val DEFAULT_PROXY_PORT = 8080
         private const val DEFAULT_PROXY_IP = "192.168.49.1"
     }
+
+
 
     //     ----- Wi-Fi P2P Manager and Channel -----
     private val wifiP2pManager: WifiP2pManager =
@@ -85,11 +90,14 @@ class HotspotViewModel(
         _isDarkTheme.value = isDark
         // Save to DataStore if needed
     }
+
     // ----- Log Entries -----
     private val _logEntries = MutableStateFlow<List<String>>(emptyList())
     val logEntries: StateFlow<List<String>> = _logEntries.asStateFlow()
+
     // ----- UI Events -----
     private val _eventFlow = MutableSharedFlow<UiEvent>()
+
     // ----- Connected Devices -----
     private val _connectedDevices = MutableStateFlow<List<WifiP2pDevice>>(emptyList())
     val connectedDevices: StateFlow<List<WifiP2pDevice>> = _connectedDevices.asStateFlow()
@@ -100,10 +108,12 @@ class HotspotViewModel(
     sealed class UiEvent {
         data class ShowToast(val message: String) : UiEvent()
     }
+
     // Add a new property for blocked devices
     private val _blockedMacAddresses = MutableStateFlow<Set<String>>(emptySet())
     private val _blockedDeviceInfos = MutableStateFlow<List<DeviceInfo>>(emptyList())
     val blockedDeviceInfos: StateFlow<List<DeviceInfo>> = _blockedDeviceInfos.asStateFlow()
+
     //battery level
     private val _batteryLevel = MutableStateFlow(100)
     val batteryLevel: StateFlow<Int> = _batteryLevel.asStateFlow()
@@ -136,127 +146,44 @@ class HotspotViewModel(
     private val _connectionStatus = MutableStateFlow("Disconnected")
     val connectionStatus: StateFlow<String> = _connectionStatus.asStateFlow()
 
-    // ----- HTTP Proxy Server -----
-    private var proxyServer: HttpProxyServer? = null
+    private val _deviceAliases = MutableStateFlow<Map<String, String>>(emptyMap())
+    val deviceAliases: StateFlow<Map<String, String>> = _deviceAliases.asStateFlow()
 
-    private val _proxyStatus = MutableStateFlow("Stopped")
-    val proxyStatus: StateFlow<String> = _proxyStatus.asStateFlow()
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////VPN
+    private val _isVpnActive = MutableStateFlow(false)
+    val isVpnActive: StateFlow<Boolean> = _isVpnActive
+//
 
-    private var proxyPort = DEFAULT_PROXY_PORT
-    private var proxyIp = DEFAULT_PROXY_IP
+//    private val _isProxyRunning = MutableStateFlow(false)
+//    val isProxyRunning: StateFlow<Boolean> = _isProxyRunning.asStateFlow()
 
-    // Flag to prevent multiple starts/stops
-    private val isProxyRunning = AtomicBoolean(false)
+    private var proxyServer: ProxyServer? = null
+
+    // ----- StateFlows for UI State -----
+    private val _isProxyRunning = MutableStateFlow(false)
+    val isProxyRunning: StateFlow<Boolean> = _isProxyRunning
+
+    private val _proxyIp = MutableStateFlow(DEFAULT_PROXY_IP)
+    val proxyIp: StateFlow<String> = _proxyIp
+
+    private val _proxyPort = MutableStateFlow(DEFAULT_PROXY_PORT)
+    val proxyPort: StateFlow<Int> = _proxyPort
 
 
-    init {
-        viewModelScope.launch {
-            dataStore.data.catch { exception ->
-                if (exception is IOException) emit(emptyPreferences())
-                else throw exception
-            }.collect { preferences ->
-                _ssid.value = preferences[SSID_KEY] ?: "TetherGuard"
-                _password.value = preferences[PASSWORD_KEY] ?: "00000000"
-                _selectedBand.value = preferences[SELECTED_BAND_KEY] ?: "Auto"
-            }
-        }
-
-        // Load other preferences
-        viewModelScope.launch {
-            dataStore.data.collect { preferences ->
-                _autoShutdownEnabled.value = preferences[AUTO_SHUTDOWN_ENABLED_KEY] ?: false
-                _idleTimeoutMinutes.value = preferences[IDLE_TIMEOUT_MINUTES_KEY] ?: 10
-                _wifiLockEnabled.value = preferences[WIFI_LOCK_ENABLED_KEY] ?: false
-            }
-        }
-        // Load blocked devices
-        viewModelScope.launch {
-            dataStore.data.collect { preferences ->
-                val blockedAddresses = preferences[BLOCKED_MAC_ADDRESSES_KEY] ?: emptySet()
-                _blockedMacAddresses.value = blockedAddresses
-                updateBlockedDevices()
-            }
-        }
-        // Load device aliases from DataStore
-        viewModelScope.launch {
-            dataStore.data.collect { preferences ->
-                val aliasesJson = preferences[DEVICE_ALIAS_KEY] ?: "{}"
-                _deviceAliases.value = Json.decodeFromString(aliasesJson)
-            }
-        }
-    }
     // ----- Function to Handle BroadcastReceiver Calls -----
     fun onGroupOwnerChanged(isGroupOwner: Boolean) {
         viewModelScope.launch {
             if (isGroupOwner) {
                 _isHotspotEnabled.value = true
-                updateLog("Device is Group Owner. Starting SSH Server and VPN.")
+                Timber.tag("GO").d("Device is the Group Owner (GO). Starting Proxy server.")
+                startProxyServer()
+
 
             } else {
                 _isHotspotEnabled.value = false
-                updateLog("Device is Client. SSH Server and VPN are not required.")
+                Timber.tag("GO").d("Device is not the Group Owner. Stopping Proxy server.")
+                stopProxyServer()
             }
-        }
-    }
-    // ----- Function to Handle Device List Changes -----
-    @SuppressLint("TimberArgCount")
-    fun onDevicesChanged(deviceList: Collection<WifiP2pDevice>) {
-        _connectedDevices.value
-        updateLog("Connected Devices: ${deviceList.size}")
-        _connectedDevices.value = deviceList.toList()
-        enforceAccessControl()
-        // Check for new connections
-        Timber.tag("HotspotViewModel").d("%s devices", "Devices changed: %s", deviceList.size)
-        val blockedAddresses = _blockedMacAddresses.value
-        _connectedDeviceInfos.value = deviceList.map { device ->
-            val isBlocked = blockedAddresses.contains(device.deviceAddress)
-            val existingInfo =
-                _connectedDeviceInfos.value.find { it.device.deviceAddress == device.deviceAddress }
-            existingInfo?.copy(isBlocked = isBlocked) ?: DeviceInfo(
-                device = device,
-                isBlocked = isBlocked
-            )
-        }
-    }
-
-    // ----- Function to Set Wi-Fi P2P Enabled State -----
-    @OptIn(ExperimentalComposeUiApi::class)
-    fun setWifiP2pEnabled(enabled: Boolean) {
-        _isWifiP2pEnabled.value = enabled
-        updateLog("Wi-Fi P2P Enabled: $isEnabled")
-    }
-
-    // ----- Function to Update Selected Band -----
-// ----- Update Selected Band -----
-    fun updateSelectedBand(newBand: String) {
-        viewModelScope.launch {
-            dataStore.edit { preferences ->
-                preferences[SELECTED_BAND_KEY] = newBand
-            }
-            _selectedBand.value = newBand
-            updateLog("Selected band updated to: $newBand")
-        }
-    }
-
-    // ----- Function to Update SSID -----
-    fun updateSSID(newSSID: String) {
-        viewModelScope.launch {
-            dataStore.edit { preferences ->
-                preferences[SSID_KEY] = newSSID
-            }
-            _ssid.value = newSSID
-            updateLog("SSID updated to: $newSSID")
-        }
-    }
-
-    // ----- Function to Update Password -----
-    fun updatePassword(newPassword: String) {
-        viewModelScope.launch {
-            dataStore.edit { preferences ->
-                preferences[PASSWORD_KEY] = newPassword
-            }
-            _password.value = newPassword
-            updateLog("Password updated.")
         }
     }
 
@@ -309,6 +236,7 @@ class HotspotViewModel(
             }
         }
     }
+
     private fun createNewGroup(config: WifiP2pConfig) {
         wifiP2pManager.createGroup(channel, config, object : WifiP2pManager.ActionListener {
             override fun onSuccess() {
@@ -324,9 +252,8 @@ class HotspotViewModel(
                     // Start idle monitoring after hotspot is active
                     startIdleMonitoring()
                     updateLog("Idle monitoring started.")
-
-                    // Start HTTP Proxy Server
-                    startHttpProxy()
+                    startProxyServer()  // Start the proxy server when the hotspot is enabled
+                    updateLog("Proxy server started.")
                 }
             }
 
@@ -337,6 +264,45 @@ class HotspotViewModel(
         })
     }
 
+
+    // ----- Stop Hotspot -----
+    fun onButtonStopTapped() {
+        if (!_isHotspotEnabled.value) return
+
+        viewModelScope.launch {
+            _isProcessing.value = true
+            wifiP2pManager.removeGroup(channel, object : WifiP2pManager.ActionListener {
+                override fun onSuccess() {
+                    viewModelScope.launch {
+                        clearHotspotState()
+                        updateLog("Hotspot stopped successfully.")
+
+                        // Release Wi-Fi Lock after stopping the hotspot
+                        releaseWifiLock()
+                        stopProxyServer()  // Stop the proxy server when the hotspot is disabled
+                        updateLog("Proxy server stopped successfully.")
+
+
+                    }
+                }
+
+                override fun onFailure(reason: Int) {
+                    handleGroupFailure(reason, "stop")
+                    retryGroupRemoval(null)
+                }
+            })
+        }
+    }
+
+    private fun getErrorReason(reason: Int): String {
+        return when (reason) {
+            WifiP2pManager.BUSY -> "Framework is busy"
+            WifiP2pManager.ERROR -> "Internal error"
+            WifiP2pManager.P2P_UNSUPPORTED -> "P2P unsupported"
+            WifiP2pManager.NO_SERVICE_REQUESTS -> "No service requests"
+            else -> "Unknown error code: $reason"
+        }
+    }
     private fun handleGroupFailure(reason: Int, action: String) {
         val reasonMessage = when (reason) {
             WifiP2pManager.BUSY -> "Framework is busy"
@@ -385,65 +351,54 @@ class HotspotViewModel(
         }
     }
 
-    // ----- Stop Hotspot -----
-    fun onButtonStopTapped() {
-        if (!_isHotspotEnabled.value) return
 
+    //******************************************************************************************VPN*************************************************
+
+    // Start the proxy server when hotspot is enabled
+//    fun startProxyServer() {
+//        viewModelScope.launch {
+//            if (!_isProxyRunning.value) {
+//                // Start proxy server with the chosen IP and port
+//                proxyServer = ProxyServer(_proxyPort.value)
+//                proxyServer?.start()
+//                _isProxyRunning.value = true
+//                _proxyIp.value = DEFAULT_PROXY_IP // Use your actual GO IP
+//                Timber.d("Proxy server started at ${_proxyIp.value}:${_proxyPort.value}")
+//            }
+//        }
+//    }
+//
+//    // Stop the proxy server when hotspot is disabled
+//    fun stopProxyServer() {
+//        viewModelScope.launch {
+//            if (_isProxyRunning.value) {
+//                proxyServer?.stop()
+//                _isProxyRunning.value = false
+//                Timber.d("Proxy server stopped.")
+//            }
+//        }
+//    }
+    // Start the proxy server
+    fun startProxyServer() {
         viewModelScope.launch {
-            _isProcessing.value = true
-            wifiP2pManager.removeGroup(channel, object : WifiP2pManager.ActionListener {
-                override fun onSuccess() {
-                    viewModelScope.launch {
-                        clearHotspotState()
-                        updateLog("Hotspot stopped successfully.")
-
-                        // Release Wi-Fi Lock after stopping the hotspot
-                        releaseWifiLock()
-                        // Stop HTTP Proxy Server
-                        stopHttpProxy()
-                    }
-                }
-                override fun onFailure(reason: Int) {
-                    handleGroupFailure(reason, "stop")
-                    retryGroupRemoval(null)
-                }
-            })
+            try {
+                proxyServer?.start()  // Start the proxy server
+                _isProxyRunning.value = true
+            } catch (e: Exception) {
+                Timber.e("Error starting proxy server: ${e.message}")
+            }
         }
     }
 
-    private fun startHttpProxy() {
-        try {
-            proxyServer = HttpProxyServer(proxyPort, proxyIp)
-            proxyServer?.start()
-            _proxyStatus.value = "Running on $proxyIp:$proxyPort"
-            updateLog("HTTP Proxy started on $proxyIp:$proxyPort")
-        } catch (e: Exception) {
-            _proxyStatus.value = "Failed to start"
-            updateLog("Failed to start HTTP Proxy: ${e.message}")
-        }
-    }
-
-    private fun stopHttpProxy() {
-        try {
-            proxyServer?.stop()
-            proxyServer = null
-            _proxyStatus.value = "Stopped"
-            updateLog("HTTP Proxy stopped.")
-        } catch (e: Exception) {
-            updateLog("Error stopping HTTP Proxy: ${e.message}")
+    // Stop the proxy server
+    fun stopProxyServer() {
+        viewModelScope.launch {
+            proxyServer?.stop()  // Stop the proxy server
+            _isProxyRunning.value = false
         }
     }
 
 
-    private fun getErrorReason(reason: Int): String {
-        return when (reason) {
-            WifiP2pManager.BUSY -> "Framework is busy"
-            WifiP2pManager.ERROR -> "Internal error"
-            WifiP2pManager.P2P_UNSUPPORTED -> "P2P unsupported"
-            WifiP2pManager.NO_SERVICE_REQUESTS -> "No service requests"
-            else -> "Unknown error code: $reason"
-        }
-    }
 
     private fun clearHotspotState() {
         _isHotspotEnabled.value = false
@@ -456,7 +411,9 @@ class HotspotViewModel(
     fun onDisconnected() {
         clearHotspotState()
         updateLog("Group disbanded. All devices disconnected.")
+        // When disconnected from the group, stop the VPN (optional)
     }
+
     // ----- Lifecycle Management -----
     override fun onCleared() {
         super.onCleared()
@@ -505,8 +462,12 @@ class HotspotViewModel(
     // ----- Wi-Fi Lock -----
     fun acquireWifiLock() {
         if (wifiLock == null) {
-            val wifiManager = getApplication<Application>().getSystemService(Context.WIFI_SERVICE) as WifiManager
-            wifiLock = wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "WiFiP2PHotspotLock")
+            val wifiManager =
+                getApplication<Application>().getSystemService(Context.WIFI_SERVICE) as WifiManager
+            wifiLock = wifiManager.createWifiLock(
+                WifiManager.WIFI_MODE_FULL_HIGH_PERF,
+                "WiFiP2PHotspotLock"
+            )
         }
         wifiLock?.takeIf { !it.isHeld }?.acquire()
     }
@@ -521,7 +482,8 @@ class HotspotViewModel(
             var idleStartTime = System.currentTimeMillis() // Track when the hotspot becomes idle
             while (isHotspotEnabled.value && autoShutdownEnabled.value) {
                 delay(1000L) // Check every second
-                val connectedDevices = _connectedDevices.value // Get the current list of connected devices
+                val connectedDevices =
+                    _connectedDevices.value // Get the current list of connected devices
 
                 // Determine if the hotspot is idle (no connected devices)
                 _isIdle.value = connectedDevices.isEmpty()
@@ -636,6 +598,7 @@ class HotspotViewModel(
             cancelConnection(config, deviceInfo)
         }
     }
+
     private fun cancelConnection(config: WifiP2pConfig, deviceInfo: DeviceInfo) {
         wifiP2pManager.cancelConnect(channel, object : WifiP2pManager.ActionListener {
             override fun onSuccess() {
@@ -646,6 +609,7 @@ class HotspotViewModel(
                     it.device.deviceAddress == deviceInfo.device.deviceAddress
                 }
             }
+
             override fun onFailure(reason: Int) {
                 val reasonStr = when (reason) {
                     WifiP2pManager.BUSY -> "Framework is busy"
@@ -714,6 +678,92 @@ class HotspotViewModel(
             viewModelScope.launch {
                 _eventFlow.emit(UiEvent.ShowToast("No email client available"))
             }
+        }
+    }
+
+
+    init {
+        viewModelScope.launch {
+            dataStore.data.catch { exception ->
+                if (exception is IOException) emit(emptyPreferences())
+                else throw exception
+            }.collect { preferences ->
+                _ssid.value = preferences[SSID_KEY] ?: "TetherGuard"
+                _password.value = preferences[PASSWORD_KEY] ?: "00000000"
+                _selectedBand.value = preferences[SELECTED_BAND_KEY] ?: "Auto"
+                _autoShutdownEnabled.value = preferences[AUTO_SHUTDOWN_ENABLED_KEY] ?: false
+                _idleTimeoutMinutes.value = preferences[IDLE_TIMEOUT_MINUTES_KEY] ?: 10
+                _wifiLockEnabled.value = preferences[WIFI_LOCK_ENABLED_KEY] ?: false
+                val blockedAddresses = preferences[BLOCKED_MAC_ADDRESSES_KEY] ?: emptySet()
+                _blockedMacAddresses.value = blockedAddresses
+                updateBlockedDevices()
+
+                val aliasesJson = preferences[DEVICE_ALIAS_KEY] ?: "{}"
+                _deviceAliases.value = Json.decodeFromString(aliasesJson)
+            }
+        }
+    }
+
+
+    // ----- Function to Handle Device List Changes -----
+    @SuppressLint("TimberArgCount")
+    fun onDevicesChanged(deviceList: Collection<WifiP2pDevice>) {
+        _connectedDevices.value
+        updateLog("Connected Devices: ${deviceList.size}")
+        _connectedDevices.value = deviceList.toList()
+        enforceAccessControl()
+        // Check for new connections
+        Timber.tag("HotspotViewModel").d("%s devices", "Devices changed: %s", deviceList.size)
+        val blockedAddresses = _blockedMacAddresses.value
+        _connectedDeviceInfos.value = deviceList.map { device ->
+            val isBlocked = blockedAddresses.contains(device.deviceAddress)
+            val existingInfo =
+                _connectedDeviceInfos.value.find { it.device.deviceAddress == device.deviceAddress }
+            existingInfo?.copy(isBlocked = isBlocked) ?: DeviceInfo(
+                device = device,
+                isBlocked = isBlocked
+            )
+        }
+    }
+
+    // ----- Function to Set Wi-Fi P2P Enabled State -----
+    @OptIn(ExperimentalComposeUiApi::class)
+    fun setWifiP2pEnabled(enabled: Boolean) {
+        _isWifiP2pEnabled.value = enabled
+        updateLog("Wi-Fi P2P Enabled: $isEnabled")
+    }
+
+    // ----- Function to Update Selected Band -----
+// ----- Update Selected Band -----
+    fun updateSelectedBand(newBand: String) {
+        viewModelScope.launch {
+            dataStore.edit { preferences ->
+                preferences[SELECTED_BAND_KEY] = newBand
+            }
+            _selectedBand.value = newBand
+            updateLog("Selected band updated to: $newBand")
+        }
+    }
+
+    // ----- Function to Update SSID -----
+    fun updateSSID(newSSID: String) {
+        viewModelScope.launch {
+            dataStore.edit { preferences ->
+                preferences[SSID_KEY] = newSSID
+            }
+            _ssid.value = newSSID
+            updateLog("SSID updated to: $newSSID")
+        }
+    }
+
+    // ----- Function to Update Password -----
+    fun updatePassword(newPassword: String) {
+        viewModelScope.launch {
+            dataStore.edit { preferences ->
+                preferences[PASSWORD_KEY] = newPassword
+            }
+            _password.value = newPassword
+            updateLog("Password updated.")
         }
     }
 }

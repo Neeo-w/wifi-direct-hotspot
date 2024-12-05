@@ -21,6 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
@@ -31,6 +32,7 @@ import com.example.wifip2photspot.HotspotControlSection
 import com.example.wifip2photspot.ImprovedHeader
 import com.example.wifip2photspot.InputFieldsSection
 import com.example.wifip2photspot.LogSection
+import com.example.wifip2photspot.ProxyInfo
 import com.example.wifip2photspot.blockedDevicesSection
 import com.example.wifip2photspot.connectedDevicesSection
 import com.example.wifip2photspot.isLocationEnabled
@@ -69,8 +71,19 @@ fun MainScreen(
     // Collect the blocked devices from the hotspotViewModel
     val blockedDeviceInfos by hotspotViewModel.blockedDeviceInfos.collectAsState()
     val batteryLevel by hotspotViewModel.batteryLevel.collectAsState()
-    val proxyStatus by hotspotViewModel.proxyStatus.collectAsState()
+    val isVpnActive by hotspotViewModel.isVpnActive.collectAsState()
 
+
+    // Proxy server details (from ViewModel or ProxyServer)
+    // Proxy server details from ViewModel
+//    val proxyIp = hotspotViewModel.proxyIp.collectAsState().value
+//    val proxyPort = hotspotViewModel.proxyPort.collectAsState().value
+//    val isProxyRunning = hotspotViewModel.isProxyRunning.collectAsState(initial = false).value
+
+// Proxy server details
+    val proxyIp = "192.168.49.1" // This can be dynamically fetched based on the device's IP
+    val proxyPort = 8080
+    val isProxyRunning by hotspotViewModel.isProxyRunning.collectAsState(initial = false)
 
     // Update hotspotViewModel when text changes
     LaunchedEffect(ssidFieldState.text) {
@@ -103,6 +116,7 @@ fun MainScreen(
         ) {
             item {
                 Spacer(modifier = Modifier.height(16.dp))
+
             }
 
             // Display Idle Countdown if applicable
@@ -110,18 +124,18 @@ fun MainScreen(
                 IdleCountdownDisplay(remainingIdleTime = remainingIdleTime)
 
             }
+
             item {
                 Spacer(modifier = Modifier.height(16.dp))
             }
-            // Proxy Status Display
+
+            // Proxy Status (if you decide to include this)
             if (isHotspotEnabled) {
                 item {
-                    Text(
-                        text = "Proxy Status: $proxyStatus",
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(8.dp)
+                    ProxyInfo(
+                        proxyIp = proxyIp,
+                        proxyPort = proxyPort,
+                        isProxyRunning = isProxyRunning
                     )
                 }
             }
@@ -188,6 +202,17 @@ fun MainScreen(
             item {
                 Spacer(modifier = Modifier.height(16.dp))
             }
+            item {
+                Text(
+                    text = if (isVpnActive) "VPN is Active" else "VPN is Inactive",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp),
+                    color = if (isVpnActive) Color.Green else Color.Red
+                )
+            }
+
             if (isHotspotEnabled) {
                 // Connected Devices Section
                 connectedDevicesSection(devices = connectedDeviceInfos,

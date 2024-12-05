@@ -89,10 +89,12 @@ dependencies {
     implementation ("androidx.core:core-ktx:1.10.1")
     implementation ("androidx.navigation:navigation-compose:2.8.3")
 
-//    implementation ("com.jcraft:jsch:0.1.55")
+    implementation (libs.jsch)
 //
 //    implementation ("org.apache.sshd:sshd-core:2.9.0")
 //    implementation(libs.charts)
+//    implementation 'com.jcraft:jsch:0.1.55'
+
 
 
 //    implementation ("com.github.peerlab:socks5:1.0.0")

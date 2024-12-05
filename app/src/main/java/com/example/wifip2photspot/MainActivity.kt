@@ -20,6 +20,7 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -55,17 +56,28 @@ class MainActivity : ComponentActivity() {
                 showPermissionRationaleDialog(deniedPermissions.toList())
             }
         }
-
     private var showPermissionDialog by mutableStateOf(false)
     private var deniedPermissionsList by mutableStateOf<List<String>>(emptyList())
     private var showWifiDisabledDialog by mutableStateOf(false)
     private var showLocationDisabledDialog by mutableStateOf(false)
+    private lateinit var wifiDirectBroadcastReceiver: WifiDirectBroadcastReceiver
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        hotspotViewModel = HotspotViewModel(applicationContext, dataStore)
 
+        // Request permissions for Wi-Fi and location
+        permissionLauncher.launch(
+            arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_WIFI_STATE,
+                Manifest.permission.CHANGE_WIFI_STATE,
+                Manifest.permission.INTERNET
+            )
+        )
+        hotspotViewModel = HotspotViewModel(applicationContext, dataStore)
+        // Observe hotspot status and manage VPN/proxy lifecycle
         setContent {
             val isDarkTheme by hotspotViewModel.isDarkTheme.collectAsState()
             WiFiP2PHotspotTheme(useDarkTheme = isDarkTheme) {
@@ -142,6 +154,7 @@ class MainActivity : ComponentActivity() {
             registerReceiver(receiver, intentFilter)
             receiverRegistered = true
         }
+
     }
 
     override fun onPause() {
@@ -150,6 +163,14 @@ class MainActivity : ComponentActivity() {
             unregisterReceiver(receiver)
             receiverRegistered = false
         }
+    }
+
+    // Stop the Wi-Fi Direct services and VPN when activity is destroyed
+    override fun onDestroy() {
+        super.onDestroy()
+
+        // Unregister the Wi-Fi Direct broadcast receiver when the activity is destroyed
+        unregisterReceiver(wifiDirectBroadcastReceiver)
     }
 
     private fun checkAndRequestPermissions(): Boolean {
@@ -196,6 +217,7 @@ class MainActivity : ComponentActivity() {
         wifiP2pManager = getSystemService(WIFI_P2P_SERVICE) as WifiP2pManager
         channel = wifiP2pManager.initialize(this, mainLooper, null)
 //        hotspotViewModel.initialize(wifiP2pManager, channel)
+
     }
 
     private fun isWifiEnabled(): Boolean {
@@ -208,6 +230,7 @@ class MainActivity : ComponentActivity() {
         return locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
                 locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
     }
+
 
     private fun openWifiSettings() {
         val intent = Intent(Settings.ACTION_WIFI_SETTINGS)
