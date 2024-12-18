@@ -6,12 +6,12 @@ plugins {
 
 android {
     namespace = "com.example.wifip2photspot"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.example.wifip2photspot"
         minSdk = 29
-        targetSdk = 34
+        targetSdk = 35
         versionCode = 1
         versionName = "1.0"
 
@@ -108,6 +108,7 @@ dependencies {
 //    implementation (libs.littleproxy)
 //    implementation ("org.littleshoot:littleproxy:2.0.0-beta6")
 //    implementation (libs.netty.all)
+
 
 
 

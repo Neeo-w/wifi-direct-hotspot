@@ -1,3 +1,5 @@
+// app/src/main/java/com/example/wifip2photspot/viewModel/WifiDirectBroadcastReceiver.kt
+
 package com.example.wifip2photspot.viewModel
 
 import android.content.BroadcastReceiver
@@ -44,7 +46,6 @@ class WifiDirectBroadcastReceiver(
                                 Timber.tag(TAG).d("Group Owner: %s", info.groupOwnerAddress.hostAddress)
                                 CoroutineScope(Dispatchers.Main).launch {
                                     viewModel.onGroupOwnerChanged(true)
-//                                    viewModel.startVpn()  // Automatically start VPN
                                 }
 
                                 // Request group info and update connected devices
@@ -62,7 +63,6 @@ class WifiDirectBroadcastReceiver(
                                 Timber.tag(TAG).d("Connected as a client.")
                                 CoroutineScope(Dispatchers.Main).launch {
                                     viewModel.onGroupOwnerChanged(false)
-//                                    viewModel.stopVpn()  // Automatically stop VPN
                                 }
                             }
                         }
@@ -72,10 +72,9 @@ class WifiDirectBroadcastReceiver(
                         viewModel.onDevicesChanged(emptyList())
                         viewModel.updateLog("Disconnected from group.")
 
-                        // Stop VPN on disconnection
+                        // Stop proxy on disconnection
                         CoroutineScope(Dispatchers.Main).launch {
                             viewModel.onDisconnected()
-//                            viewModel.stopVpn()  // Stop VPN
                         }
                     }
                 }

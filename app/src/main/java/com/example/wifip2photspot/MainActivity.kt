@@ -1,7 +1,8 @@
 // MainActivity.kt
 package com.example.wifip2photspot
+
 import android.Manifest
-import android.app.Activity.WIFI_P2P_SERVICE
+import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -16,11 +17,9 @@ import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -38,10 +37,12 @@ import com.example.wifip2photspot.ui.theme.WiFiP2PHotspotTheme
 import com.example.wifip2photspot.viewModel.HotspotViewModel
 import com.example.wifip2photspot.viewModel.HotspotViewModelFactory
 import com.example.wifip2photspot.viewModel.WifiDirectBroadcastReceiver
+import timber.log.Timber
 
 class MainActivity : ComponentActivity() {
-    private lateinit var hotspotViewModel: HotspotViewModel
     private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
+
+    private lateinit var hotspotViewModel: HotspotViewModel
     private lateinit var wifiP2pManager: WifiP2pManager
     private lateinit var channel: WifiP2pManager.Channel
     private lateinit var receiver: WifiDirectBroadcastReceiver
@@ -56,16 +57,20 @@ class MainActivity : ComponentActivity() {
                 showPermissionRationaleDialog(deniedPermissions.toList())
             }
         }
+
     private var showPermissionDialog by mutableStateOf(false)
     private var deniedPermissionsList by mutableStateOf<List<String>>(emptyList())
     private var showWifiDisabledDialog by mutableStateOf(false)
     private var showLocationDisabledDialog by mutableStateOf(false)
-    private lateinit var wifiDirectBroadcastReceiver: WifiDirectBroadcastReceiver
-
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Create the HotspotViewModel using a Factory if needed
+        hotspotViewModel = ViewModelProvider(
+            this,
+            HotspotViewModelFactory(application as Application, dataStore)
+        ).get(HotspotViewModel::class.java)
 
         // Request permissions for Wi-Fi and location
         permissionLauncher.launch(
@@ -76,8 +81,7 @@ class MainActivity : ComponentActivity() {
                 Manifest.permission.INTERNET
             )
         )
-        hotspotViewModel = HotspotViewModel(applicationContext, dataStore)
-        // Observe hotspot status and manage VPN/proxy lifecycle
+
         setContent {
             val isDarkTheme by hotspotViewModel.isDarkTheme.collectAsState()
             WiFiP2PHotspotTheme(useDarkTheme = isDarkTheme) {
@@ -165,12 +169,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // Stop the Wi-Fi Direct services and VPN when activity is destroyed
     override fun onDestroy() {
         super.onDestroy()
-
         // Unregister the Wi-Fi Direct broadcast receiver when the activity is destroyed
-        unregisterReceiver(wifiDirectBroadcastReceiver)
+        if (this::receiver.isInitialized && receiverRegistered) {
+            unregisterReceiver(receiver)
+        }
     }
 
     private fun checkAndRequestPermissions(): Boolean {
@@ -216,8 +220,6 @@ class MainActivity : ComponentActivity() {
 
         wifiP2pManager = getSystemService(WIFI_P2P_SERVICE) as WifiP2pManager
         channel = wifiP2pManager.initialize(this, mainLooper, null)
-//        hotspotViewModel.initialize(wifiP2pManager, channel)
-
     }
 
     private fun isWifiEnabled(): Boolean {
@@ -230,7 +232,6 @@ class MainActivity : ComponentActivity() {
         return locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
                 locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
     }
-
 
     private fun openWifiSettings() {
         val intent = Intent(Settings.ACTION_WIFI_SETTINGS)

@@ -292,47 +292,39 @@ fun SwitchPreference(
     }
 }
 
-
-
-@Composable
-fun ProxyInfo(
-    proxyIp: String,
-    proxyPort: Int,
-    isProxyRunning: Boolean
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp)
-            .background(MaterialTheme.colorScheme.surface)
-            .padding(16.dp)
-    ) {
-        Text(
-            text = "Proxy Server Information",
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.primary
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Text(
-            text = "IP Address: $proxyIp",
-            style = MaterialTheme.typography.bodyMedium
-        )
-
-        Text(
-            text = "Port: $proxyPort",
-            style = MaterialTheme.typography.bodyMedium
-        )
-
-        Text(
-            text = "Status: ${if (isProxyRunning) "Running" else "Stopped"}",
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (isProxyRunning) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
-        )
-    }
-}
-
-
-
-
+//
+//
+//@Composable
+//fun ProxyInfo(
+//    proxyIp: String,
+//    proxyPort: Int,
+//    isProxyRunning: Boolean
+//) {
+//    Card(
+//        modifier = Modifier
+//            .fillMaxWidth()
+//            .padding(vertical = 8.dp),
+//        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+//    ) {
+//        Column(modifier = Modifier.padding(16.dp)) {
+//            Text(
+//                text = "Proxy Server",
+//                style = MaterialTheme.typography.titleMedium
+//            )
+//            Text(
+//                text = if (isProxyRunning) "Status: Running" else "Status: Stopped",
+//                style = MaterialTheme.typography.bodyMedium,
+//                color = if (isProxyRunning) androidx.compose.ui.graphics.Color.Green else androidx.compose.ui.graphics.Color.Red
+//            )
+//            if (isProxyRunning) {
+//                Text(
+//                    text = "URL: $proxyIp:$proxyPort",
+//                    style = MaterialTheme.typography.bodySmall
+//                )
+//            }
+//        }
+//    }
+//}
+//
+//
+//

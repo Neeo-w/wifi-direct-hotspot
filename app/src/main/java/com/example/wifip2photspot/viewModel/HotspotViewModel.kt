@@ -3,11 +3,10 @@ package com.example.wifip2photspot.viewModel
 
 import android.annotation.SuppressLint
 import android.app.Application
-import android.content.Context
+//import android.content.Context
 import android.content.Intent
 import android.net.MacAddress
 import android.net.Uri
-import android.net.VpnService
 import android.net.wifi.WifiManager
 import android.net.wifi.WpsInfo
 import android.net.wifi.p2p.WifiP2pConfig
@@ -15,26 +14,28 @@ import android.net.wifi.p2p.WifiP2pDevice
 import android.net.wifi.p2p.WifiP2pManager
 import android.os.Build
 import android.os.Looper
-import android.os.ParcelFileDescriptor
+import android.content.Context
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.contentcapture.ContentCaptureManager.Companion.isEnabled
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.viewModelScope
 import com.example.wifip2photspot.DeviceInfo
-import com.example.wifip2photspot.ProxyServer
+//import com.example.wifip2photspot.ProxyServer
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import timber.log.Timber
-import com.example.wifip2photspot.MyVpnService
+//import com.example.wifip2photspot.proxy.ConfigurationManager
+import com.example.wifip2photspot.proxy.ProxyService
 import java.io.IOException
-import java.util.concurrent.atomic.AtomicBoolean
+
+//import kotlin.coroutines.jvm.internal.CompletedContinuation.context
 
 class HotspotViewModel(
     application: Context,
@@ -51,7 +52,7 @@ class HotspotViewModel(
         private val DEVICE_ALIAS_KEY = stringPreferencesKey("device_aliases")
         private val WIFI_LOCK_ENABLED_KEY = booleanPreferencesKey("wifi_lock_enabled")
         private val _deviceAliases = MutableStateFlow<Map<String, String>>(emptyMap())
-        private const val DEFAULT_PROXY_PORT = 8080
+        private const val PROXY_PORT = 8888
         private const val DEFAULT_PROXY_IP = "192.168.49.1"
     }
 
@@ -154,35 +155,55 @@ class HotspotViewModel(
     val isVpnActive: StateFlow<Boolean> = _isVpnActive
 //
 
-//    private val _isProxyRunning = MutableStateFlow(false)
-//    val isProxyRunning: StateFlow<Boolean> = _isProxyRunning.asStateFlow()
 
-    private var proxyServer: ProxyServer? = null
 
-    // ----- StateFlows for UI State -----
+    // Proxy Configuration States
+    // ----- Proxy Server States -----
+// Proxy states
     private val _isProxyRunning = MutableStateFlow(false)
-    val isProxyRunning: StateFlow<Boolean> = _isProxyRunning
+    val isProxyRunning: StateFlow<Boolean> = _isProxyRunning.asStateFlow()
 
-    private val _proxyIp = MutableStateFlow(DEFAULT_PROXY_IP)
-    val proxyIp: StateFlow<String> = _proxyIp
-
-    private val _proxyPort = MutableStateFlow(DEFAULT_PROXY_PORT)
-    val proxyPort: StateFlow<Int> = _proxyPort
+    private val _proxyIpAddress = MutableStateFlow("192.168.49.1") // Default Wi-Fi Direct GO IP
+    val proxyIpAddress: StateFlow<String> = _proxyIpAddress.asStateFlow()
 
 
-    // ----- Function to Handle BroadcastReceiver Calls -----
+    private fun startProxy(ssid: String, password: String, port: Int) {
+        viewModelScope.launch {
+            val intent = Intent(getApplication(), ProxyService::class.java).apply {
+                putExtra("proxy_port", port)
+                putExtra("proxy_username", ssid)
+                putExtra("proxy_password", password)
+            }
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                getApplication<Application>().startForegroundService(intent)
+            } else {
+                getApplication<Application>().startService(intent)
+            }
+            _isProxyRunning.value = true
+        }
+    }
+
+    private fun stopProxy() {
+        viewModelScope.launch {
+            val intent = Intent(getApplication(), ProxyService::class.java)
+            getApplication<Application>().stopService(intent)
+            _isProxyRunning.value = false
+        }
+    }
+
+
+
+    // ----- Retrieve Group Owner IP Address -----
     fun onGroupOwnerChanged(isGroupOwner: Boolean) {
         viewModelScope.launch {
             if (isGroupOwner) {
                 _isHotspotEnabled.value = true
-                Timber.tag("GO").d("Device is the Group Owner (GO). Starting Proxy server.")
-                startProxyServer()
-
-
+                updateLog("Device is the Group Owner (GO). Starting Proxy server.")
+                startProxy(_ssid.value, _password.value, PROXY_PORT)
             } else {
                 _isHotspotEnabled.value = false
-                Timber.tag("GO").d("Device is not the Group Owner. Stopping Proxy server.")
-                stopProxyServer()
+                updateLog("Device is not the Group Owner. Stopping Proxy server.")
+                stopProxy()
             }
         }
     }
@@ -252,7 +273,9 @@ class HotspotViewModel(
                     // Start idle monitoring after hotspot is active
                     startIdleMonitoring()
                     updateLog("Idle monitoring started.")
-                    startProxyServer()  // Start the proxy server when the hotspot is enabled
+
+                    // Start the proxy with the hotspot's SSID and password, and fixed port 8888
+                    startProxy(_ssid.value, _password.value, PROXY_PORT)
                     updateLog("Proxy server started.")
                 }
             }
@@ -279,9 +302,9 @@ class HotspotViewModel(
 
                         // Release Wi-Fi Lock after stopping the hotspot
                         releaseWifiLock()
-                        stopProxyServer()  // Stop the proxy server when the hotspot is disabled
+                        // Stop Proxy Server
+                        stopProxy()
                         updateLog("Proxy server stopped successfully.")
-
 
                     }
                 }
@@ -378,23 +401,62 @@ class HotspotViewModel(
 //            }
 //        }
 //    }
-    // Start the proxy server
-    fun startProxyServer() {
-        viewModelScope.launch {
-            try {
-                proxyServer?.start()  // Start the proxy server
-                _isProxyRunning.value = true
-            } catch (e: Exception) {
-                Timber.e("Error starting proxy server: ${e.message}")
-            }
-        }
-    }
+//    // Start the proxy server
+//    fun startProxyServer() {
+//        viewModelScope.launch {
+//            try {
+//                proxyServer?.start()  // Start the proxy server
+//                _isProxyRunning.value = true
+//            } catch (e: Exception) {
+//                Timber.e("Error starting proxy server: ${e.message}")
+//            }
+//        }
+//    }
+//
+//    // Stop the proxy server
+//    fun stopProxyServer() {
+//        viewModelScope.launch {
+//            proxyServer?.stop()  // Stop the proxy server
+//            _isProxyRunning.value = false
+//        }
+//    }
+//    // Start the proxy server
+//    fun startProxyServer() {
+//        viewModelScope.launch {
+//            try {
+//                ServiceStatusRepository.setProxyRunning(true) // Update the repository
+//                Timber.d("Proxy server started at ${getIPAddress(true)}:${getProxyPort()}")
+//                updateLog("Proxy server started.")
+//            } catch (e: Exception) {
+//                Timber.e("Error starting proxy server: ${e.message}")
+//                emitUiEvent("Error starting proxy server: ${e.message}")
+//            }
+//        }
+//    }
+//
+//    // Stop the proxy server
+//    fun stopProxyServer() {
+//        viewModelScope.launch {
+//            try {
+//                ServiceStatusRepository.setProxyRunning(false) // Update the repository
+//                Timber.d("Proxy server stopped.")
+//                updateLog("Proxy server stopped.")
+//            } catch (e: Exception) {
+//                Timber.e("Error stopping proxy server: ${e.message}")
+//                emitUiEvent("Error stopping proxy server: ${e.message}")
+//            }
+//        }
+//    }
+//
+//    // ----- Proxy Control Functions -----
+//    fun setProxyPort(port: Int) {
+//        _proxyPort.value = port
+//    }
 
-    // Stop the proxy server
-    fun stopProxyServer() {
+    // ----- Logging Functions -----
+    fun logEvent(message: String) {
         viewModelScope.launch {
-            proxyServer?.stop()  // Stop the proxy server
-            _isProxyRunning.value = false
+            _logEntries.value = _logEntries.value + message
         }
     }
 
@@ -767,3 +829,4 @@ class HotspotViewModel(
         }
     }
 }
+
