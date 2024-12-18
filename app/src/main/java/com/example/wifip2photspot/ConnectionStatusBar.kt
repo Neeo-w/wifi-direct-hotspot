@@ -4,6 +4,7 @@ package com.example.wifip2photspot
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -291,6 +292,39 @@ fun SwitchPreference(
     }
 }
 
-
-
-
+//
+//
+//@Composable
+//fun ProxyInfo(
+//    proxyIp: String,
+//    proxyPort: Int,
+//    isProxyRunning: Boolean
+//) {
+//    Card(
+//        modifier = Modifier
+//            .fillMaxWidth()
+//            .padding(vertical = 8.dp),
+//        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+//    ) {
+//        Column(modifier = Modifier.padding(16.dp)) {
+//            Text(
+//                text = "Proxy Server",
+//                style = MaterialTheme.typography.titleMedium
+//            )
+//            Text(
+//                text = if (isProxyRunning) "Status: Running" else "Status: Stopped",
+//                style = MaterialTheme.typography.bodyMedium,
+//                color = if (isProxyRunning) androidx.compose.ui.graphics.Color.Green else androidx.compose.ui.graphics.Color.Red
+//            )
+//            if (isProxyRunning) {
+//                Text(
+//                    text = "URL: $proxyIp:$proxyPort",
+//                    style = MaterialTheme.typography.bodySmall
+//                )
+//            }
+//        }
+//    }
+//}
+//
+//
+//

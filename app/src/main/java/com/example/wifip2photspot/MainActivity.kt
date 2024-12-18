@@ -1,7 +1,8 @@
 // MainActivity.kt
 package com.example.wifip2photspot
+
 import android.Manifest
-import android.app.Activity.WIFI_P2P_SERVICE
+import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -16,7 +17,6 @@ import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -37,10 +37,12 @@ import com.example.wifip2photspot.ui.theme.WiFiP2PHotspotTheme
 import com.example.wifip2photspot.viewModel.HotspotViewModel
 import com.example.wifip2photspot.viewModel.HotspotViewModelFactory
 import com.example.wifip2photspot.viewModel.WifiDirectBroadcastReceiver
+import timber.log.Timber
 
 class MainActivity : ComponentActivity() {
-    private lateinit var hotspotViewModel: HotspotViewModel
     private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
+
+    private lateinit var hotspotViewModel: HotspotViewModel
     private lateinit var wifiP2pManager: WifiP2pManager
     private lateinit var channel: WifiP2pManager.Channel
     private lateinit var receiver: WifiDirectBroadcastReceiver
@@ -64,7 +66,21 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        hotspotViewModel = HotspotViewModel(applicationContext, dataStore)
+        // Create the HotspotViewModel using a Factory if needed
+        hotspotViewModel = ViewModelProvider(
+            this,
+            HotspotViewModelFactory(application as Application, dataStore)
+        ).get(HotspotViewModel::class.java)
+
+        // Request permissions for Wi-Fi and location
+        permissionLauncher.launch(
+            arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_WIFI_STATE,
+                Manifest.permission.CHANGE_WIFI_STATE,
+                Manifest.permission.INTERNET
+            )
+        )
 
         setContent {
             val isDarkTheme by hotspotViewModel.isDarkTheme.collectAsState()
@@ -142,6 +158,7 @@ class MainActivity : ComponentActivity() {
             registerReceiver(receiver, intentFilter)
             receiverRegistered = true
         }
+
     }
 
     override fun onPause() {
@@ -149,6 +166,14 @@ class MainActivity : ComponentActivity() {
         if (receiverRegistered) {
             unregisterReceiver(receiver)
             receiverRegistered = false
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Unregister the Wi-Fi Direct broadcast receiver when the activity is destroyed
+        if (this::receiver.isInitialized && receiverRegistered) {
+            unregisterReceiver(receiver)
         }
     }
 
@@ -195,7 +220,6 @@ class MainActivity : ComponentActivity() {
 
         wifiP2pManager = getSystemService(WIFI_P2P_SERVICE) as WifiP2pManager
         channel = wifiP2pManager.initialize(this, mainLooper, null)
-//        hotspotViewModel.initialize(wifiP2pManager, channel)
     }
 
     private fun isWifiEnabled(): Boolean {
